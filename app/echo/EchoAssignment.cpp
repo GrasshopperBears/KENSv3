@@ -28,6 +28,46 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   // !IMPORTANT: for all system calls, when an error happens, your program must
   // return. e.g., if an read() call return -1, return -1 for serverMain.
 
+  // TODO: 에러 핸들링
+
+  sockaddr_in socket_address, client_address;
+  int server_socket_fd, client_socket_fd, err;
+  socklen_t client_address_length;
+  char *buff, client_ip[INET_ADDRSTRLEN];
+
+  server_socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+  memset(&socket_address, 0, sizeof(sockaddr));
+  socket_address.sin_family = AF_INET;
+  inet_pton(AF_INET, bind_ip, &(socket_address.sin_addr));
+  socket_address.sin_port = htons(port);
+
+  err = bind(server_socket_fd, (struct sockaddr*) &socket_address, sizeof(socket_address));
+  if (err < 0) {
+    printf("%s\n", strerror(err));
+    exit(-1);
+  }
+
+  listen(server_socket_fd, 5);
+
+  client_address_length = sizeof(client_address);
+  client_socket_fd = accept(server_socket_fd, (struct sockaddr*) &client_address, &client_address_length);
+  if (client_socket_fd < 0) {
+    printf("%s\n", strerror(client_socket_fd));
+    return client_socket_fd;
+  }
+
+  buff = (char*) alloca(1024);
+  read(client_socket_fd, buff, 1024);
+
+  buff[1024] = '\0';
+  inet_ntop(AF_INET, &client_address.sin_addr, client_ip, INET_ADDRSTRLEN);
+  submitAnswer(client_ip, buff);
+
+  write(client_socket_fd, "hello\n", 6);
+
+  close(server_socket_fd);
+  
   return 0;
 }
 
