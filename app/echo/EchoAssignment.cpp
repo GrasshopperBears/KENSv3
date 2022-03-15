@@ -78,6 +78,29 @@ int EchoAssignment::clientMain(const char *server_ip, int port,
   // !IMPORTANT: for all system calls, when an error happens, your program must
   // return. e.g., if an read() call return -1, return -1 for clientMain.
 
+  sockaddr_in socket_address;
+  int client_socket_fd;
+  char* buff;
+
+  client_socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+  memset(&socket_address, 0, sizeof(sockaddr));
+  socket_address.sin_family = AF_INET;
+  inet_pton(AF_INET, server_ip, &(socket_address.sin_addr));
+  socket_address.sin_port = htons(port);
+
+  connect(client_socket_fd, (struct sockaddr*) &socket_address, sizeof(socket_address));
+
+  write(client_socket_fd, command, strlen(command));
+
+  buff = (char*) alloca(1024);
+  read(client_socket_fd, buff, 1024);
+
+  buff[1024] = '\0';
+  submitAnswer(server_ip, buff);
+
+  close(client_socket_fd);
+
   return 0;
 }
 
