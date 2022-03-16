@@ -34,6 +34,7 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   int server_sock_fd, client_sock_fd, err, input_len;
   socklen_t server_addr_len, client_addr_len;
   char buff[1024], server_ip[INET_ADDRSTRLEN], client_ip[INET_ADDRSTRLEN], *answer;
+  bool server_ip_set = false;
 
   server_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -58,7 +59,10 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
       printf("%s\n", strerror(client_sock_fd));
       return client_sock_fd;
     }
-    strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
+    if (!server_ip_set) {
+      strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
+      server_ip_set = true;
+    }
 
     client_addr_len = sizeof(struct sockaddr_in);
     getpeername(client_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len);
@@ -81,7 +85,6 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
     }
     else {
       // docs에는 \n로 끝내라 하는데 \0로 끝내야 제대로 인식됨. 확인 필요.
-      printf("write: %s\n", buff);
       write(client_sock_fd, buff, input_len + 1);
     }
   }
