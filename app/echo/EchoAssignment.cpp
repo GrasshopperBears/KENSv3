@@ -33,7 +33,7 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   sockaddr_in server_addr, client_addr;
   int server_sock_fd, client_sock_fd, err, input_len;
   socklen_t client_addr_len;
-  char buff[1024], client_ip[INET_ADDRSTRLEN], *answer;
+  char buff[1024], server_ip[INET_ADDRSTRLEN], client_ip[INET_ADDRSTRLEN], *answer;
 
   server_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -59,26 +59,30 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
 
   client_addr_len = sizeof(struct sockaddr_in);
   getpeername(client_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len);
+  getsockname(server_sock_fd, (struct sockaddr*) &server_addr, &client_addr_len);
   strcpy(client_ip, inet_ntoa(client_addr.sin_addr));
+  strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
 
   memset(&buff, (int)'\0', sizeof(buff));
   read(client_sock_fd, buff, 1024);
   input_len = strlen(buff);
 
-  // printf("client sent: %s\n", buff);
+  submitAnswer(client_ip, buff);
 
-  answer = (char*) malloc(sizeof(char) * (input_len + 1));
-  memcpy(answer, buff, sizeof(char) * input_len);
-  answer[input_len] = '\0';
-
-  submitAnswer(client_ip, answer);
-
-  // docs에는 \0로 끝내라 하는데 \0로 끝내야 제대로 인식됨. 확인 필요.
-  // answer[input_len] = '\n';
-  write(client_sock_fd, answer, input_len + 1);
-
+  if (!strcmp("whoru", buff)) {
+    write(client_sock_fd, server_ip, sizeof(server_ip)); 
+  }
+  else if (!strcmp("whoami", buff)) {
+    write(client_sock_fd, client_ip, sizeof(client_ip));
+  }
+  else if (!strcmp("hello", buff)) {
+    write(client_sock_fd, server_hello, strlen(server_hello) + 1);
+  }
+  else {
+    // docs에는 \0로 끝내라 하는데 \0로 끝내야 제대로 인식됨. 확인 필요.
+    write(client_sock_fd, buff, input_len + 1);
+  }
   close(server_sock_fd);
-  free(answer);
   
   return 0;
 }
