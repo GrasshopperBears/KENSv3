@@ -94,29 +94,35 @@ int EchoAssignment::clientMain(const char *server_ip, int port,
   // !IMPORTANT: for all system calls, when an error happens, your program must
   // return. e.g., if an read() call return -1, return -1 for clientMain.
 
+  const int BUFFUER_SIZE = 1024;
   sockaddr_in server_addr;
-  int socket_fd;
-  char* buff;
+  int socket_fd, syscall_result;
+  char buff[BUFFUER_SIZE];
 
-  socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-
+  if ((socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
+    return socket_fd;
+  }
   memset(&server_addr, 0, sizeof(sockaddr));
   server_addr.sin_family = AF_INET;
   inet_pton(AF_INET, server_ip, &(server_addr.sin_addr));
   server_addr.sin_port = htons(port);
 
-  connect(socket_fd, (struct sockaddr*) &server_addr, sizeof(server_addr));
-
-  write(socket_fd, command, strlen(command));
-
-  buff = (char*) alloca(1024);
-  read(socket_fd, buff, 1024);
-
-  buff[1024] = '\0';
+  if ((syscall_result = connect(socket_fd, (struct sockaddr*) &server_addr, sizeof(server_addr))) == -1) {
+    return syscall_result;
+  }
+  if ((syscall_result = write(socket_fd, command, strlen(command))) == -1) {
+    return syscall_result;
+  }
+  if ((syscall_result = read(socket_fd, buff, BUFFUER_SIZE)) == -1) {
+    return syscall_result;
+  }
+  // submitAnswer ending charater 설정 필요할듯?
+  // buff[1024] = '\0';
   submitAnswer(server_ip, buff);
 
-  close(socket_fd);
-
+  if ((syscall_result = close(socket_fd)) == -1) {
+    return syscall_result;
+  }
   return 0;
 }
 
