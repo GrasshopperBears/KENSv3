@@ -39,7 +39,7 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
 
   server_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
-  memset(&server_addr, 0, sizeof(sockaddr));
+  memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
   inet_pton(AF_INET, bind_ip, &(server_addr.sin_addr));
   server_addr.sin_port = htons(port);
@@ -50,14 +50,13 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   if ((syscall_result = listen(server_sock_fd, 64)) == -1) {
     return syscall_result;
   }
-  server_addr_len = sizeof(server_addr);
 
   while (true) {
+    server_addr_len = sizeof(server_addr);
     if ((client_sock_fd = accept(server_sock_fd, (struct sockaddr*) &server_addr, &server_addr_len)) == -1) {
       return client_sock_fd;
     }
-
-    client_addr_len = sizeof(struct sockaddr_in);
+    client_addr_len = sizeof(client_addr);
     if ((syscall_result = getpeername(client_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len)) == -1) {
       return syscall_result;
     }
@@ -66,7 +65,7 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
     getsockname(client_sock_fd, (struct sockaddr*) &server_addr, &server_addr_len);
     strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
 
-    memset(&buff, (int)'\0', sizeof(buff));
+    memset(&buff, 0, sizeof(buff));
     if ((syscall_result = read(client_sock_fd, buff, BUFFUER_SIZE)) == -1) {
       return syscall_result;
     }
@@ -116,7 +115,8 @@ int EchoAssignment::clientMain(const char *server_ip, int port,
   if ((socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
     return socket_fd;
   }
-  memset(&server_addr, 0, sizeof(sockaddr));
+  memset(&buff, 0, sizeof(buff));
+  memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
   inet_pton(AF_INET, server_ip, &(server_addr.sin_addr));
   server_addr.sin_port = htons(port);
