@@ -51,35 +51,39 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   listen(server_sock_fd, 5);
 
   server_addr_len = sizeof(server_addr);
-  client_sock_fd = accept(server_sock_fd, (struct sockaddr*) &server_addr, &server_addr_len);
-  if (client_sock_fd < 0) {
-    printf("%s\n", strerror(client_sock_fd));
-    return client_sock_fd;
-  }
-  strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
 
-  client_addr_len = sizeof(struct sockaddr_in);
-  getpeername(client_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len);
-  strcpy(client_ip, inet_ntoa(client_addr.sin_addr));
+  while (true) {
+    client_sock_fd = accept(server_sock_fd, (struct sockaddr*) &server_addr, &server_addr_len);
+    if (client_sock_fd < 0) {
+      printf("%s\n", strerror(client_sock_fd));
+      return client_sock_fd;
+    }
+    strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
 
-  memset(&buff, (int)'\0', sizeof(buff));
-  read(client_sock_fd, buff, 1024);
-  input_len = strlen(buff);
+    client_addr_len = sizeof(struct sockaddr_in);
+    getpeername(client_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len);
+    strcpy(client_ip, inet_ntoa(client_addr.sin_addr));
 
-  submitAnswer(client_ip, buff);
+    memset(&buff, (int)'\0', sizeof(buff));
+    read(client_sock_fd, buff, 1024);
+    input_len = strlen(buff);
 
-  if (!strcmp("whoru", buff)) {
-    write(client_sock_fd, server_ip, sizeof(server_ip)); 
-  }
-  else if (!strcmp("whoami", buff)) {
-    write(client_sock_fd, client_ip, sizeof(client_ip));
-  }
-  else if (!strcmp("hello", buff)) {
-    write(client_sock_fd, server_hello, strlen(server_hello) + 1);
-  }
-  else {
-    // docs에는 \0로 끝내라 하는데 \0로 끝내야 제대로 인식됨. 확인 필요.
-    write(client_sock_fd, buff, input_len + 1);
+    submitAnswer(client_ip, buff);
+
+    if (!strcmp("whoru", buff)) {
+      write(client_sock_fd, server_ip, sizeof(server_ip)); 
+    }
+    else if (!strcmp("whoami", buff)) {
+      write(client_sock_fd, client_ip, sizeof(client_ip));
+    }
+    else if (!strcmp("hello", buff)) {
+      write(client_sock_fd, server_hello, strlen(server_hello) + 1);
+    }
+    else {
+      // docs에는 \n로 끝내라 하는데 \0로 끝내야 제대로 인식됨. 확인 필요.
+      printf("write: %s\n", buff);
+      write(client_sock_fd, buff, input_len + 1);
+    }
   }
   close(server_sock_fd);
   
