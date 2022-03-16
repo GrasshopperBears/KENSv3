@@ -31,9 +31,9 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   // TODO: 에러 핸들링
 
   sockaddr_in server_addr, client_addr;
-  int server_sock_fd, client_sock_fd, err;
+  int server_sock_fd, client_sock_fd, err, input_len;
   socklen_t client_addr_len;
-  char *buff, client_ip[INET_ADDRSTRLEN];
+  char buff[1024], client_ip[INET_ADDRSTRLEN], *answer;
 
   server_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -57,16 +57,28 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
     return client_sock_fd;
   }
 
-  buff = (char*) alloca(1024);
+  client_addr_len = sizeof(struct sockaddr_in);
+  getpeername(client_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len);
+  strcpy(client_ip, inet_ntoa(client_addr.sin_addr));
+
+  memset(&buff, (int)'\0', sizeof(buff));
   read(client_sock_fd, buff, 1024);
+  input_len = strlen(buff);
 
-  buff[1024] = '\0';
-  inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-  submitAnswer(client_ip, buff);
+  // printf("client sent: %s\n", buff);
 
-  write(client_sock_fd, "hello\n", 6);
+  answer = (char*) malloc(sizeof(char) * (input_len + 1));
+  memcpy(answer, buff, sizeof(char) * input_len);
+  answer[input_len] = '\0';
+
+  submitAnswer(client_ip, answer);
+
+  // docs에는 \0로 끝내라 하는데 \0로 끝내야 제대로 인식됨. 확인 필요.
+  // answer[input_len] = '\n';
+  write(client_sock_fd, answer, input_len + 1);
 
   close(server_sock_fd);
+  free(answer);
   
   return 0;
 }
