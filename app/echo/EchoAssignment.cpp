@@ -32,7 +32,7 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
 
   sockaddr_in server_addr, client_addr;
   int server_sock_fd, client_sock_fd, err, input_len;
-  socklen_t client_addr_len;
+  socklen_t server_addr_len, client_addr_len;
   char buff[1024], server_ip[INET_ADDRSTRLEN], client_ip[INET_ADDRSTRLEN], *answer;
 
   server_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -50,18 +50,17 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
 
   listen(server_sock_fd, 5);
 
-  client_addr_len = sizeof(client_addr);
-  client_sock_fd = accept(server_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len);
+  server_addr_len = sizeof(server_addr);
+  client_sock_fd = accept(server_sock_fd, (struct sockaddr*) &server_addr, &server_addr_len);
   if (client_sock_fd < 0) {
     printf("%s\n", strerror(client_sock_fd));
     return client_sock_fd;
   }
+  strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
 
   client_addr_len = sizeof(struct sockaddr_in);
   getpeername(client_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len);
-  getsockname(server_sock_fd, (struct sockaddr*) &server_addr, &client_addr_len);
   strcpy(client_ip, inet_ntoa(client_addr.sin_addr));
-  strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
 
   memset(&buff, (int)'\0', sizeof(buff));
   read(client_sock_fd, buff, 1024);
