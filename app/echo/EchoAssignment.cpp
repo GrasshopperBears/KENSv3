@@ -34,7 +34,6 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   int server_sock_fd, client_sock_fd, syscall_result, input_len;
   socklen_t server_addr_len, client_addr_len;
   char buff[1024], server_ip[INET_ADDRSTRLEN], client_ip[INET_ADDRSTRLEN], *answer;
-  bool server_ip_set = false;
 
   server_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -55,16 +54,15 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
     if ((client_sock_fd = accept(server_sock_fd, (struct sockaddr*) &server_addr, &server_addr_len)) == -1) {
       return client_sock_fd;
     }
-    if (!server_ip_set) {
-      strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
-      server_ip_set = true;
-    }
 
     client_addr_len = sizeof(struct sockaddr_in);
     if ((syscall_result = getpeername(client_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len)) == -1) {
       return syscall_result;
     }
     strcpy(client_ip, inet_ntoa(client_addr.sin_addr));
+
+    getsockname(client_sock_fd, (struct sockaddr*) &server_addr, &server_addr_len);
+    strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
 
     memset(&buff, (int)'\0', sizeof(buff));
     if ((syscall_result = read(client_sock_fd, buff, 1024)) == -1) {
