@@ -31,7 +31,7 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   // TODO: 에러 핸들링
 
   sockaddr_in server_addr, client_addr;
-  int server_sock_fd, client_sock_fd, err, input_len;
+  int server_sock_fd, client_sock_fd, syscall_result, input_len;
   socklen_t server_addr_len, client_addr_len;
   char buff[1024], server_ip[INET_ADDRSTRLEN], client_ip[INET_ADDRSTRLEN], *answer;
   bool server_ip_set = false;
@@ -43,20 +43,16 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   inet_pton(AF_INET, bind_ip, &(server_addr.sin_addr));
   server_addr.sin_port = htons(port);
 
-  err = bind(server_sock_fd, (struct sockaddr*) &server_addr, sizeof(server_addr));
-  if (err < 0) {
-    printf("%s\n", strerror(err));
-    exit(-1);
+  if ((syscall_result = bind(server_sock_fd, (struct sockaddr*) &server_addr, sizeof(server_addr))) == -1) {
+    return syscall_result;
   }
-
-  listen(server_sock_fd, 5);
-
+  if ((syscall_result = listen(server_sock_fd, 5)) == -1) {
+    return syscall_result;
+  }
   server_addr_len = sizeof(server_addr);
 
   while (true) {
-    client_sock_fd = accept(server_sock_fd, (struct sockaddr*) &server_addr, &server_addr_len);
-    if (client_sock_fd < 0) {
-      printf("%s\n", strerror(client_sock_fd));
+    if ((client_sock_fd = accept(server_sock_fd, (struct sockaddr*) &server_addr, &server_addr_len)) == -1) {
       return client_sock_fd;
     }
     if (!server_ip_set) {
@@ -65,27 +61,39 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
     }
 
     client_addr_len = sizeof(struct sockaddr_in);
-    getpeername(client_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len);
+    if ((syscall_result = getpeername(client_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len)) == -1) {
+      return syscall_result;
+    }
     strcpy(client_ip, inet_ntoa(client_addr.sin_addr));
 
     memset(&buff, (int)'\0', sizeof(buff));
-    read(client_sock_fd, buff, 1024);
+    if ((syscall_result = read(client_sock_fd, buff, 1024)) == -1) {
+      return syscall_result;
+    }
     input_len = strlen(buff);
 
     submitAnswer(client_ip, buff);
 
     if (!strcmp("whoru", buff)) {
-      write(client_sock_fd, server_ip, sizeof(server_ip)); 
+      if ((syscall_result = write(client_sock_fd, server_ip, sizeof(server_ip))) == -1) {
+        return syscall_result;
+      }
     }
     else if (!strcmp("whoami", buff)) {
-      write(client_sock_fd, client_ip, sizeof(client_ip));
+      if ((write(client_sock_fd, client_ip, sizeof(client_ip))) == -1) {
+        return syscall_result;
+      }
     }
     else if (!strcmp("hello", buff)) {
-      write(client_sock_fd, server_hello, strlen(server_hello) + 1);
+      if ((syscall_result = write(client_sock_fd, server_hello, strlen(server_hello) + 1)) == -1) {
+        return syscall_result;
+      }
     }
     else {
       // docs에는 \n로 끝내라 하는데 \0로 끝내야 제대로 인식됨. 확인 필요.
-      write(client_sock_fd, buff, input_len + 1);
+      if ((syscall_result = write(client_sock_fd, buff, input_len + 1)) == -1) {
+        return syscall_result;
+      }
     }
   }
   close(server_sock_fd);
