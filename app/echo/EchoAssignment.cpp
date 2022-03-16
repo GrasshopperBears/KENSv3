@@ -30,43 +30,43 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
 
   // TODO: 에러 핸들링
 
-  sockaddr_in socket_address, client_address;
-  int server_socket_fd, client_socket_fd, err;
-  socklen_t client_address_length;
+  sockaddr_in server_addr, client_addr;
+  int server_sock_fd, client_sock_fd, err;
+  socklen_t client_addr_len;
   char *buff, client_ip[INET_ADDRSTRLEN];
 
-  server_socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  server_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
-  memset(&socket_address, 0, sizeof(sockaddr));
-  socket_address.sin_family = AF_INET;
-  inet_pton(AF_INET, bind_ip, &(socket_address.sin_addr));
-  socket_address.sin_port = htons(port);
+  memset(&server_addr, 0, sizeof(sockaddr));
+  server_addr.sin_family = AF_INET;
+  inet_pton(AF_INET, bind_ip, &(server_addr.sin_addr));
+  server_addr.sin_port = htons(port);
 
-  err = bind(server_socket_fd, (struct sockaddr*) &socket_address, sizeof(socket_address));
+  err = bind(server_sock_fd, (struct sockaddr*) &server_addr, sizeof(server_addr));
   if (err < 0) {
     printf("%s\n", strerror(err));
     exit(-1);
   }
 
-  listen(server_socket_fd, 5);
+  listen(server_sock_fd, 5);
 
-  client_address_length = sizeof(client_address);
-  client_socket_fd = accept(server_socket_fd, (struct sockaddr*) &client_address, &client_address_length);
-  if (client_socket_fd < 0) {
-    printf("%s\n", strerror(client_socket_fd));
-    return client_socket_fd;
+  client_addr_len = sizeof(client_addr);
+  client_sock_fd = accept(server_sock_fd, (struct sockaddr*) &client_addr, &client_addr_len);
+  if (client_sock_fd < 0) {
+    printf("%s\n", strerror(client_sock_fd));
+    return client_sock_fd;
   }
 
   buff = (char*) alloca(1024);
-  read(client_socket_fd, buff, 1024);
+  read(client_sock_fd, buff, 1024);
 
   buff[1024] = '\0';
-  inet_ntop(AF_INET, &client_address.sin_addr, client_ip, INET_ADDRSTRLEN);
+  inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
   submitAnswer(client_ip, buff);
 
-  write(client_socket_fd, "hello\n", 6);
+  write(client_sock_fd, "hello\n", 6);
 
-  close(server_socket_fd);
+  close(server_sock_fd);
   
   return 0;
 }
@@ -78,28 +78,28 @@ int EchoAssignment::clientMain(const char *server_ip, int port,
   // !IMPORTANT: for all system calls, when an error happens, your program must
   // return. e.g., if an read() call return -1, return -1 for clientMain.
 
-  sockaddr_in socket_address;
-  int client_socket_fd;
+  sockaddr_in server_addr;
+  int socket_fd;
   char* buff;
 
-  client_socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
-  memset(&socket_address, 0, sizeof(sockaddr));
-  socket_address.sin_family = AF_INET;
-  inet_pton(AF_INET, server_ip, &(socket_address.sin_addr));
-  socket_address.sin_port = htons(port);
+  memset(&server_addr, 0, sizeof(sockaddr));
+  server_addr.sin_family = AF_INET;
+  inet_pton(AF_INET, server_ip, &(server_addr.sin_addr));
+  server_addr.sin_port = htons(port);
 
-  connect(client_socket_fd, (struct sockaddr*) &socket_address, sizeof(socket_address));
+  connect(socket_fd, (struct sockaddr*) &server_addr, sizeof(server_addr));
 
-  write(client_socket_fd, command, strlen(command));
+  write(socket_fd, command, strlen(command));
 
   buff = (char*) alloca(1024);
-  read(client_socket_fd, buff, 1024);
+  read(socket_fd, buff, 1024);
 
   buff[1024] = '\0';
   submitAnswer(server_ip, buff);
 
-  close(client_socket_fd);
+  close(socket_fd);
 
   return 0;
 }
