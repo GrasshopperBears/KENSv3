@@ -30,10 +30,12 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
 
   // TODO: 에러 핸들링
 
+  const int BUFFUER_SIZE = 1024;
+  const int LISTEN_BACKLOG = 64;
   sockaddr_in server_addr, client_addr;
   int server_sock_fd, client_sock_fd, syscall_result, input_len;
   socklen_t server_addr_len, client_addr_len;
-  char buff[1024], server_ip[INET_ADDRSTRLEN], client_ip[INET_ADDRSTRLEN], *answer;
+  char buff[BUFFUER_SIZE], server_ip[INET_ADDRSTRLEN], client_ip[INET_ADDRSTRLEN], *answer;
 
   server_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -45,7 +47,7 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   if ((syscall_result = bind(server_sock_fd, (struct sockaddr*) &server_addr, sizeof(server_addr))) == -1) {
     return syscall_result;
   }
-  if ((syscall_result = listen(server_sock_fd, 5)) == -1) {
+  if ((syscall_result = listen(server_sock_fd, 64)) == -1) {
     return syscall_result;
   }
   server_addr_len = sizeof(server_addr);
@@ -65,7 +67,7 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
     strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
 
     memset(&buff, (int)'\0', sizeof(buff));
-    if ((syscall_result = read(client_sock_fd, buff, 1024)) == -1) {
+    if ((syscall_result = read(client_sock_fd, buff, BUFFUER_SIZE)) == -1) {
       return syscall_result;
     }
     input_len = strlen(buff);
