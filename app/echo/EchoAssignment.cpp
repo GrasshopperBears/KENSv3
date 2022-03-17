@@ -28,14 +28,12 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   // !IMPORTANT: for all system calls, when an error happens, your program must
   // return. e.g., if an read() call return -1, return -1 for serverMain.
 
-  // TODO: 에러 핸들링
-
   const int BUFFUER_SIZE = 1024;
   const int LISTEN_BACKLOG = 64;
   sockaddr_in server_addr, client_addr;
-  int server_sock_fd, client_sock_fd, syscall_result, input_len;
   socklen_t server_addr_len, client_addr_len;
-  char buff[BUFFUER_SIZE], server_ip[INET_ADDRSTRLEN], client_ip[INET_ADDRSTRLEN], *answer;
+  int server_sock_fd, client_sock_fd, syscall_result, input_len;
+  char buff[BUFFUER_SIZE], server_ip[INET_ADDRSTRLEN], client_ip[INET_ADDRSTRLEN];
 
   server_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -62,7 +60,9 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
     }
     strcpy(client_ip, inet_ntoa(client_addr.sin_addr));
 
-    getsockname(client_sock_fd, (struct sockaddr*) &server_addr, &server_addr_len);
+    if ((syscall_result = getsockname(client_sock_fd, (struct sockaddr*) &server_addr, &server_addr_len)) == -1) {
+      return syscall_result;
+    }
     strcpy(server_ip, inet_ntoa(server_addr.sin_addr));
 
     memset(&buff, 0, sizeof(buff));
@@ -89,7 +89,6 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
       }
     }
     else {
-      // docs에는 \n로 끝내라 하는데 \0로 끝내야 제대로 인식됨. 확인 필요.
       if ((syscall_result = write(client_sock_fd, buff, input_len + 1)) == -1) {
         return syscall_result;
       }
@@ -115,7 +114,6 @@ int EchoAssignment::clientMain(const char *server_ip, int port,
   if ((socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
     return socket_fd;
   }
-  memset(&buff, 0, sizeof(buff));
   memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
   inet_pton(AF_INET, server_ip, &(server_addr.sin_addr));
@@ -127,11 +125,11 @@ int EchoAssignment::clientMain(const char *server_ip, int port,
   if ((syscall_result = write(socket_fd, command, strlen(command))) == -1) {
     return syscall_result;
   }
+
+  memset(&buff, 0, sizeof(buff));
   if ((syscall_result = read(socket_fd, buff, BUFFUER_SIZE)) == -1) {
     return syscall_result;
   }
-  // submitAnswer ending charater 설정 필요할듯?
-  // buff[1024] = '\0';
   submitAnswer(server_ip, buff);
 
   if ((syscall_result = close(socket_fd)) == -1) {
