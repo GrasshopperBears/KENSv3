@@ -15,6 +15,30 @@
         "moduleLoad": false,
         "trace": true
       }
+    },
+    {
+      "name": "Debug kens part1",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/app/kens/kens-part1",
+      "cwd": "${workspaceFolder}",
+      "externalConsole": false,
+      "logging": {
+        "moduleLoad": false,
+        "trace": true
+      }
+    },
+    {
+      "name": "Debug kens part2",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/app/kens/kens-part2",
+      "cwd": "${workspaceFolder}",
+      "externalConsole": false,
+      "logging": {
+        "moduleLoad": false,
+        "trace": true
+      }
     }
   ]
 }
