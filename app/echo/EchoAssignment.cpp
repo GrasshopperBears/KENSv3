@@ -32,8 +32,8 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
   const int LISTEN_BACKLOG = 64;
   sockaddr_in server_addr, client_addr;
   socklen_t server_addr_len, client_addr_len;
-  int server_sock_fd, client_sock_fd, syscall_result, input_len;
-  char buff[BUFFUER_SIZE], server_ip[INET_ADDRSTRLEN], client_ip[INET_ADDRSTRLEN];
+  int server_sock_fd, client_sock_fd, syscall_result;
+  char buff[BUFFUER_SIZE], server_ip[INET_ADDRSTRLEN], client_ip[INET_ADDRSTRLEN], answer[BUFFUER_SIZE];
 
   server_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -69,29 +69,27 @@ int EchoAssignment::serverMain(const char *bind_ip, int port,
     if ((syscall_result = read(client_sock_fd, buff, BUFFUER_SIZE)) == -1) {
       return syscall_result;
     }
-    input_len = strlen(buff);
 
+    buff[strlen(buff) + 1] = 0;
     submitAnswer(client_ip, buff);
 
+    memset(answer, 0, sizeof(answer));
     if (!strcmp("whoru", buff)) {
-      if ((syscall_result = write(client_sock_fd, server_ip, sizeof(server_ip))) == -1) {
-        return syscall_result;
-      }
+      strcpy(answer, server_ip);
     }
     else if (!strcmp("whoami", buff)) {
-      if ((write(client_sock_fd, client_ip, sizeof(client_ip))) == -1) {
-        return syscall_result;
-      }
+      strcpy(answer, client_ip);
     }
     else if (!strcmp("hello", buff)) {
-      if ((syscall_result = write(client_sock_fd, server_hello, strlen(server_hello) + 1)) == -1) {
-        return syscall_result;
-      }
+      strcpy(answer, server_hello);
     }
     else {
-      if ((syscall_result = write(client_sock_fd, buff, input_len + 1)) == -1) {
-        return syscall_result;
-      }
+      strcpy(answer, buff);
+    }
+    answer[strlen(answer) + 1] = '\n';
+
+    if ((syscall_result = write(client_sock_fd, answer, strlen(answer) + 2)) == -1) {
+      return syscall_result;
     }
   }
   close(server_sock_fd);
@@ -109,7 +107,7 @@ int EchoAssignment::clientMain(const char *server_ip, int port,
   const int BUFFUER_SIZE = 1024;
   sockaddr_in server_addr;
   int socket_fd, syscall_result;
-  char buff[BUFFUER_SIZE];
+  char buff[BUFFUER_SIZE], command_to_server[strlen(command) + 2];
 
   if ((socket_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
     return socket_fd;
@@ -122,7 +120,11 @@ int EchoAssignment::clientMain(const char *server_ip, int port,
   if ((syscall_result = connect(socket_fd, (struct sockaddr*) &server_addr, sizeof(server_addr))) == -1) {
     return syscall_result;
   }
-  if ((syscall_result = write(socket_fd, command, strlen(command))) == -1) {
+
+  memset(command_to_server, 0, sizeof(command_to_server));
+  strcpy(command_to_server, command);
+  command_to_server[strlen(command) + 1] = '\n';
+  if ((syscall_result = write(socket_fd, command_to_server, sizeof(command_to_server))) == -1) {
     return syscall_result;
   }
 
@@ -130,6 +132,7 @@ int EchoAssignment::clientMain(const char *server_ip, int port,
   if ((syscall_result = read(socket_fd, buff, BUFFUER_SIZE)) == -1) {
     return syscall_result;
   }
+  buff[strlen(buff) + 1] = 0;
   submitAnswer(server_ip, buff);
 
   if ((syscall_result = close(socket_fd)) == -1) {
