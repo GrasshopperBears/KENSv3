@@ -33,13 +33,19 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
   (void)syscallUUID;
   (void)pid;
 
+  int fd;
+
   switch (param.syscallNumber) {
   case SOCKET:
     // this->syscall_socket(syscallUUID, pid, std::get<int>(param.params[0]),
     //                      std::get<int>(param.params[1]));
+    fd = createFileDescriptor(pid);
+    returnSystemCall(syscallUUID, fd);
     break;
   case CLOSE:
     // this->syscall_close(syscallUUID, pid, std::get<int>(param.params[0]));
+    removeFileDescriptor(pid, std::get<int>(param.params[0]));
+    returnSystemCall(syscallUUID, 0);
     break;
   case READ:
     // this->syscall_read(syscallUUID, pid, std::get<int>(param.params[0]),
