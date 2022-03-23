@@ -82,9 +82,12 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
   case CLOSE: {
     // this->syscall_close(syscallUUID, pid, std::get<int>(param.params[0]));
     fd = std::get<int>(param.params[0]);
-
     sock_table_item_itr sock_table_item_itr = find_sock_alloc_item(pid, fd);
-    assert(sock_table_item_itr != sock_table.end());
+
+    if (sock_table_item_itr == sock_table.end()) {
+      returnSystemCall(syscallUUID, -1);
+      break;
+    }
     struct sock_table_item* sock_table_item = *sock_table_item_itr;
 
     removeFileDescriptor(pid, fd);
@@ -191,17 +194,20 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     fd = std::get<int>(param.params[0]);
     struct sockaddr_in* addr = (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param.params[1]));
     socklen_t* addrlen = static_cast<socklen_t *>(std::get<void *>(param.params[2]));
-
     sock_table_item_itr found_item_itr = find_sock_alloc_item(pid, fd);
-    assert(found_item_itr != sock_table.end());
-    struct kens_sockaddr_in* found_item = (*found_item_itr)->sockaddr;
 
-    addr->sin_addr.s_addr = found_item->sin_addr;
-    addr->sin_family = found_item->sin_family;
-    addr->sin_port = found_item->sin_port;
+    if (found_item_itr == sock_table.end()) {
+      returnSystemCall(syscallUUID, -1);
+      break;
+    }
+    struct kens_sockaddr_in* sockaddr_in = (*found_item_itr)->sockaddr;
+
+    addr->sin_addr.s_addr = sockaddr_in->sin_addr;
+    addr->sin_family = sockaddr_in->sin_family;
+    addr->sin_port = sockaddr_in->sin_port;
     memset(addr->sin_zero, 0, sizeof(addr->sin_zero));
 
-    *addrlen = found_item->sin_len;
+    *addrlen = sockaddr_in->sin_len;
     returnSystemCall(syscallUUID, 0);
 
     break;
