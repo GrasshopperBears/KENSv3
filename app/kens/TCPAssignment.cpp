@@ -26,6 +26,26 @@ void TCPAssignment::initialize() {}
 
 void TCPAssignment::finalize() {}
 
+struct sock_info {
+};
+
+struct sock_table_item {
+  int pid;
+  int fd;
+  struct sock_info* sock_info;
+};
+
+std::vector<sock_table_item*> sock_table;
+using sock_table_item_itr = typename std::vector<struct sock_table_item*>::iterator;
+
+sock_table_item_itr find_sock_alloc_item(int pid, int fd) {
+  sock_table_item_itr itr;
+  for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
+    if ((*itr)->pid == pid && (*itr)->fd == fd) { break; }
+  }
+  return itr;
+}
+
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
                                    const SystemCallParameter &param) {
 
@@ -36,17 +56,39 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
   int fd;
 
   switch (param.syscallNumber) {
-  case SOCKET:
+  case SOCKET: {
     // this->syscall_socket(syscallUUID, pid, std::get<int>(param.params[0]),
     //                      std::get<int>(param.params[1]));
+    struct sock_info* sock_info = (struct sock_info*) malloc(sizeof(struct sock_info));
+    struct sock_table_item* sock_table_item = (struct sock_table_item*) malloc(sizeof(struct sock_table_item));
+
     fd = createFileDescriptor(pid);
+
+    sock_table_item->sock_info = sock_info;
+    sock_table_item->fd = fd;
+    sock_table_item->pid = pid;
+    sock_table.push_back(sock_table_item);
+
     returnSystemCall(syscallUUID, fd);
     break;
-  case CLOSE:
+  }
+  case CLOSE: {
     // this->syscall_close(syscallUUID, pid, std::get<int>(param.params[0]));
-    removeFileDescriptor(pid, std::get<int>(param.params[0]));
+    fd = std::get<int>(param.params[0]);
+
+    sock_table_item_itr sock_table_item_itr = find_sock_alloc_item(pid, fd);
+    assert(sock_table_item_itr != sock_table.end());
+    struct sock_table_item* sock_table_item = *sock_table_item_itr;
+
+    removeFileDescriptor(pid, fd);
+
+    free(sock_table_item->sock_info);
+    free(sock_table_item);
+    sock_table.erase(sock_table_item_itr);
+
     returnSystemCall(syscallUUID, 0);
     break;
+  }
   case READ:
     // this->syscall_read(syscallUUID, pid, std::get<int>(param.params[0]),
     //                    std::get<void *>(param.params[1]),
