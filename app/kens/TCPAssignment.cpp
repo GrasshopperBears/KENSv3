@@ -130,25 +130,24 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     bool isFind = false;
 
     for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
-      if ((*itr)->pid == pid) {
-        /*
-          Consider Overlap
-          - "Diff Addr and Same Port" is allowed.
-          - "INADDR_ANY Addr and Same Port" is not allowed.
-        */
-        if ((*itr)->sockaddr != NULL && 
-          ((*itr)->sockaddr->sin_addr.s_addr == param_addr->sin_addr.s_addr || 
-          param_addr->sin_addr.s_addr == NL_INADDR_ANY || (*itr)->sockaddr->sin_addr.s_addr == NL_INADDR_ANY)) {
-          if ((*itr)->sockaddr->sin_port == param_addr->sin_port) {
-            returnSystemCall(syscallUUID, -1);
-          }
+      /*
+        Consider Overlap
+        - "Diff Addr and Same Port" is allowed.
+        - "INADDR_ANY Addr and Same Port" is not allowed.
+      */
+      if ((*itr)->sockaddr != NULL && (
+        (*itr)->sockaddr->sin_addr.s_addr == param_addr->sin_addr.s_addr || 
+        param_addr->sin_addr.s_addr == NL_INADDR_ANY ||
+        (*itr)->sockaddr->sin_addr.s_addr == NL_INADDR_ANY)
+      ) {
+        if ((*itr)->sockaddr->sin_port == param_addr->sin_port) {
+          returnSystemCall(syscallUUID, -1);
         }
-
-        // Find same pid, same fd.
-        if ((*itr)->fd == param_fd) {
-          findItr = itr;
-          isFind = true;
-        }
+      }
+      // Find same pid, same fd.
+      if ((*itr)->pid == pid && (*itr)->fd == param_fd) {
+        findItr = itr;
+        isFind = true;
       }
     }
 
