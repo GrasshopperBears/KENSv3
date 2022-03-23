@@ -29,11 +29,18 @@ void TCPAssignment::finalize() {}
 struct sock_table_item {
   int pid;
   int fd;
-  struct sockaddr_in* sockaddr;
+  struct kens_sockaddr_in* sockaddr;
 };
 
 std::vector<sock_table_item*> sock_table;
 using sock_table_item_itr = typename std::vector<struct sock_table_item*>::iterator;
+
+struct kens_sockaddr_in {
+  __uint8_t sin_len;
+  sa_family_t sin_family;
+  in_port_t sin_port;
+  uint32_t sin_addr;
+};
 
 sock_table_item_itr find_sock_alloc_item(int pid, int fd) {
   sock_table_item_itr itr;
@@ -136,9 +143,9 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
         - "INADDR_ANY Addr and Same Port" is not allowed.
       */
       if ((*itr)->sockaddr != NULL && (
-        (*itr)->sockaddr->sin_addr.s_addr == param_addr->sin_addr.s_addr || 
+        (*itr)->sockaddr->sin_addr == param_addr->sin_addr.s_addr || 
         param_addr->sin_addr.s_addr == NL_INADDR_ANY ||
-        (*itr)->sockaddr->sin_addr.s_addr == NL_INADDR_ANY)
+        (*itr)->sockaddr->sin_addr == NL_INADDR_ANY)
       ) {
         if ((*itr)->sockaddr->sin_port == param_addr->sin_port) {
           returnSystemCall(syscallUUID, -1);
@@ -161,27 +168,44 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       returnSystemCall(syscallUUID, -1);
     }
 
-    struct sockaddr_in* addr = (struct sockaddr_in *) malloc(sizeof(struct sockaddr_in));
+    struct kens_sockaddr_in* addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
     if (sock_table_item == NULL) {
       printf("Error: can't allocate memory(sockaddr_in)\n");
       returnSystemCall(syscallUUID, -1);
     }
 
-    addr->sin_len = param_addr->sin_len;
+    addr->sin_len = sizeof(param_addr->sin_addr);
     addr->sin_family = param_addr->sin_family;
     addr->sin_port = param_addr->sin_port;
-    addr->sin_addr.s_addr = param_addr->sin_addr.s_addr;
+    addr->sin_addr = param_addr->sin_addr.s_addr;
     sock_table_item->sockaddr = addr;
 
     returnSystemCall(syscallUUID, 0);
     break;
   }
-  case GETSOCKNAME:
+  case GETSOCKNAME: {
     // this->syscall_getsockname(
     //     syscallUUID, pid, std::get<int>(param.params[0]),
     //     static_cast<struct sockaddr *>(std::get<void *>(param.params[1])),
     //     static_cast<socklen_t *>(std::get<void *>(param.params[2])));
+    fd = std::get<int>(param.params[0]);
+    struct sockaddr_in* addr = (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param.params[1]));
+    socklen_t* addrlen = static_cast<socklen_t *>(std::get<void *>(param.params[2]));
+
+    sock_table_item_itr found_item_itr = find_sock_alloc_item(pid, fd);
+    assert(found_item_itr != sock_table.end());
+    struct kens_sockaddr_in* found_item = (*found_item_itr)->sockaddr;
+
+    addr->sin_addr.s_addr = found_item->sin_addr;
+    addr->sin_family = found_item->sin_family;
+    addr->sin_port = found_item->sin_port;
+    memset(addr->sin_zero, 0, sizeof(addr->sin_zero));
+
+    *addrlen = found_item->sin_len;
+    returnSystemCall(syscallUUID, 0);
+
     break;
+  }
   case GETPEERNAME:
     // this->syscall_getpeername(
     //     syscallUUID, pid, std::get<int>(param.params[0]),
