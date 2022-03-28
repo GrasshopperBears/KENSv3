@@ -40,6 +40,7 @@ struct sock_table_item {
   struct kens_sockaddr_in* my_sockaddr;
   struct kens_sockaddr_in* peer_sockaddr;
   enum Status status;
+  int backlog;
 };
 
 std::vector<sock_table_item*> sock_table;
@@ -127,11 +128,31 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     //     static_cast<struct sockaddr *>(std::get<void *>(param.params[1])),
     //     (socklen_t)std::get<int>(param.params[2]));
     break;
-  case LISTEN:
+  case LISTEN: {
     // this->syscall_listen(syscallUUID, pid, std::get<int>(param.params[0]),
     //                      std::get<int>(param.params[1]));
+    fd = std::get<int>(param.params[0]);
+    int backlog = std::get<int>(param.params[1]);
+    
+    sock_table_item_itr sock_table_item_itr = find_sock_alloc_item(pid, fd);
+    struct sock_table_item* sock_table_item = *sock_table_item_itr;
+
+    if (sock_table_item_itr == sock_table.end() || sock_table_item->status == E::LISTEN) {
+      returnSystemCall(syscallUUID, -1);
+      break;
+    }
+
+    if (backlog < 0) {
+      sock_table_item->backlog = 0;
+    } else if (backlog > SOMAXCONN) {
+      sock_table_item->backlog = SOMAXCONN;
+    } else {
+      sock_table_item->backlog = backlog;
+    }
+    sock_table_item->status = E::LISTEN;
 
     break;
+  }
   case ACCEPT:
     // this->syscall_accept(
     //     syscallUUID, pid, std::get<int>(param.params[0]),
