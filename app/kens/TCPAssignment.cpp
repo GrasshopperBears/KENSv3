@@ -26,11 +26,20 @@ void TCPAssignment::initialize() {}
 
 void TCPAssignment::finalize() {}
 
+enum Status {
+  CLOSED,
+  LISTEN,
+  SYN_RCVD,
+  SYN_SENT,
+  EXTAB
+};
+
 struct sock_table_item {
   int pid;
   int fd;
   struct kens_sockaddr_in* my_sockaddr;
   struct kens_sockaddr_in* peer_sockaddr;
+  enum Status status;
 };
 
 std::vector<sock_table_item*> sock_table;
@@ -75,6 +84,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     sock_table_item->my_sockaddr = NULL;
     sock_table_item->fd = fd;
     sock_table_item->pid = pid;
+    sock_table_item->status = CLOSED;
     sock_table.push_back(sock_table_item);
 
     returnSystemCall(syscallUUID, fd);
@@ -120,6 +130,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
   case LISTEN:
     // this->syscall_listen(syscallUUID, pid, std::get<int>(param.params[0]),
     //                      std::get<int>(param.params[1]));
+
     break;
   case ACCEPT:
     // this->syscall_accept(
