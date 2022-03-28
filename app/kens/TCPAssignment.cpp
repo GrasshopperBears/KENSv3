@@ -29,7 +29,8 @@ void TCPAssignment::finalize() {}
 struct sock_table_item {
   int pid;
   int fd;
-  struct kens_sockaddr_in* sockaddr;
+  struct kens_sockaddr_in* my_sockaddr;
+  struct kens_sockaddr_in* peer_sockaddr;
 };
 
 std::vector<sock_table_item*> sock_table;
@@ -71,7 +72,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     fd = createFileDescriptor(pid);
 
-    sock_table_item->sockaddr = NULL;
+    sock_table_item->my_sockaddr = NULL;
     sock_table_item->fd = fd;
     sock_table_item->pid = pid;
     sock_table.push_back(sock_table_item);
@@ -92,8 +93,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     removeFileDescriptor(pid, fd);
 
-    if (sock_table_item->sockaddr != NULL)
-      free(sock_table_item->sockaddr);
+    if (sock_table_item->my_sockaddr != NULL)
+      free(sock_table_item->my_sockaddr);
     free(sock_table_item);
     sock_table.erase(sock_table_item_itr);
 
@@ -145,12 +146,12 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
         - "Diff Addr and Same Port" is allowed.
         - "INADDR_ANY Addr and Same Port" is not allowed.
       */
-      if ((*itr)->sockaddr != NULL && (
-        (*itr)->sockaddr->sin_addr == param_addr->sin_addr.s_addr || 
+      if ((*itr)->my_sockaddr != NULL && (
+        (*itr)->my_sockaddr->sin_addr == param_addr->sin_addr.s_addr || 
         param_addr->sin_addr.s_addr == NL_INADDR_ANY ||
-        (*itr)->sockaddr->sin_addr == NL_INADDR_ANY)
+        (*itr)->my_sockaddr->sin_addr == NL_INADDR_ANY)
       ) {
-        if ((*itr)->sockaddr->sin_port == param_addr->sin_port) {
+        if ((*itr)->my_sockaddr->sin_port == param_addr->sin_port) {
           returnSystemCall(syscallUUID, -1);
         }
       }
@@ -167,7 +168,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     struct sock_table_item* sock_table_item = *findItr;
     // Prevent Double Bind. If it is already bound, return -1. ("Same addr and Diff port" is not allowed.)
-    if (sock_table_item->sockaddr != NULL) {
+    if (sock_table_item->my_sockaddr != NULL) {
       returnSystemCall(syscallUUID, -1);
     }
 
@@ -181,7 +182,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     addr->sin_family = param_addr->sin_family;
     addr->sin_port = param_addr->sin_port;
     addr->sin_addr = param_addr->sin_addr.s_addr;
-    sock_table_item->sockaddr = addr;
+    sock_table_item->my_sockaddr = addr;
 
     returnSystemCall(syscallUUID, 0);
     break;
@@ -200,7 +201,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       returnSystemCall(syscallUUID, -1);
       break;
     }
-    struct kens_sockaddr_in* sockaddr_in = (*found_item_itr)->sockaddr;
+    struct kens_sockaddr_in* sockaddr_in = (*found_item_itr)->my_sockaddr;
 
     addr->sin_addr.s_addr = sockaddr_in->sin_addr;
     addr->sin_family = sockaddr_in->sin_family;
