@@ -256,10 +256,24 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
   }
 }
 
+const int PACKET_OFFSET = 14;
+
+void getPacketSrcDst(Packet packet, uint8_t *src_ip, uint8_t *dst_ip) {
+  packet.readData(PACKET_OFFSET + 12, src_ip, 4);
+  packet.readData(PACKET_OFFSET + 16, dst_ip, 4);
+}
+
+void setPacketSrcDst(Packet packet, uint8_t *src_ip, uint8_t *dst_ip) {
+  packet.writeData(PACKET_OFFSET + 12, src_ip, 4);
+  packet.writeData(PACKET_OFFSET + 16, dst_ip, 4);
+}
+
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   // Remove below
   (void)fromModule;
   (void)packet;
+  uint8_t income_src_ip[4], income_dst_ip[4];
+  getPacketSrcDst(packet, income_src_ip, income_dst_ip);
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
