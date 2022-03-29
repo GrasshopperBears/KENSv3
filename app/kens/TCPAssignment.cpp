@@ -71,6 +71,13 @@ sock_info_itr find_sock_info(int pid, int fd) {
   return itr;
 }
 
+void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
+                                  SystemCallInterface::SystemCallParameter *param) {
+  int fd = std::get<int>(param->params[0]);
+  struct sockaddr_in* addr = (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param->params[1]));
+  socklen_t* addrlen = static_cast<socklen_t *>(std::get<void *>(param->params[2]));
+}
+
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
                                    const SystemCallParameter &param) {
   switch (param.syscallNumber) {
@@ -163,12 +170,16 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     break;
   }
-  case ACCEPT:
+  case ACCEPT: {
     // this->syscall_accept(
     //     syscallUUID, pid, std::get<int>(param.params[0]),
     //     static_cast<struct sockaddr *>(std::get<void *>(param.params[1])),
     //     static_cast<socklen_t *>(std::get<void *>(param.params[2])));
+    SystemCallParameter *param_to_pass = (SystemCallParameter *) malloc(sizeof(SystemCallParameter));
+    memcpy(param_to_pass, &param, sizeof(SystemCallParameter));
+    acceptHandler(syscallUUID, pid, param_to_pass);
     break;
+  }
   case BIND: {
     // this->syscall_bind(
     //     syscallUUID, pid, std::get<int>(param.params[0]),

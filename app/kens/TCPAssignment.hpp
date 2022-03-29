@@ -32,6 +32,8 @@ public:
   virtual ~TCPAssignment();
 
 protected:
+  virtual void acceptHandler(UUID syscallUUID, int pid,
+                              SystemCallInterface::SystemCallParameter *param) final;
   virtual void systemCallback(UUID syscallUUID, int pid,
                               const SystemCallParameter &param) final;
   virtual void handleSynAckPacket(std::string fromModule, Packet *packet) final;
