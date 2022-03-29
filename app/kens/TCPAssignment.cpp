@@ -39,11 +39,14 @@ enum Status {
 // ----------------structs start----------------
 struct sock_info {
   int pid;
-  int fd;
+  int fd;   // -1 if not returned yet
+  struct sock_info* parent_sock;
   struct kens_sockaddr_in* my_sockaddr;
   struct kens_sockaddr_in* peer_sockaddr;
+  std::list<sock_info*>* child_sock_list;
   enum Status status;
   int backlog;
+  int current_backlog;
 };
 
 struct kens_sockaddr_in {
@@ -85,9 +88,10 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     sock_info->my_sockaddr = NULL;
     sock_info->peer_sockaddr = NULL;
+    sock_info->child_sock_list = NULL;
     sock_info->fd = fd;
     sock_info->pid = pid;
-    sock_info->status = CLOSED;
+    sock_info->status = Status::CLOSED;
     sock_table.push_back(sock_info);
 
     returnSystemCall(syscallUUID, fd);
@@ -141,7 +145,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     sock_info_itr sock_info_itr = find_sock_info(pid, fd);
     struct sock_info* sock_info = *sock_info_itr;
 
-    if (sock_info_itr == sock_table.end() || sock_info->status == E::LISTEN) {
+    if (sock_info_itr == sock_table.end() || sock_info->status == Status::LISTEN) {
       returnSystemCall(syscallUUID, -1);
       break;
     }
@@ -153,7 +157,9 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     } else {
       sock_info->backlog = backlog;
     }
-    sock_info->status = E::LISTEN;
+    sock_info->status = Status::LISTEN;
+    sock_info->current_backlog = 0;
+    sock_info->child_sock_list = new std::list<struct sock_info*>();
 
     break;
   }
@@ -297,6 +303,18 @@ bool isAckPacket(Packet *packet) {
   return (flags >> 4) & 1;
 }
 
+void cloneSockInfo(struct sock_info* dst, struct sock_info* src) {
+  dst->backlog = 0;
+  dst->current_backlog = 0;
+  dst->child_sock_list = new std::list<struct sock_info*>();
+  dst->fd = -1;
+  memcpy(dst->my_sockaddr, src->my_sockaddr, sizeof(struct kens_sockaddr_in));
+  dst->parent_sock = src;
+  dst->pid = src->pid;
+  dst->status = E::SYN_RCVD;
+}
+
+
 void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
@@ -304,11 +322,70 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
   return;
 }
+
 void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
+  sock_info_itr itr;
+  struct sock_info* sock_info;
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+
+  // TODO: 이미 ESTAB된 socket일 경우 데이터 주고받기
+
+  for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
+    sock_info = *itr;
+    if (sock_info->my_sockaddr->sin_port == income_dst_port &&
+          (sock_info->my_sockaddr->sin_addr == 0
+            || sock_info->my_sockaddr->sin_addr == income_dst_ip)
+    ) {
+      break;
+    }
+  }
+
+  // Server: initiallize TCP connection (1st step of 3-way handshake)
+  if (sock_info->status == Status::LISTEN) {
+    Packet response_packet = packet->clone();
+    struct sock_info* new_sock_info;
+
+    setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
+    
+    // backlog count check
+    if (sock_info->backlog <= sock_info->current_backlog) {
+      // 무시 혹은 RST flag set
+      // TODO: (maybe) clone한 패킷 처리?
+      return;
+    }
+    
+    if ((new_sock_info = (struct sock_info*) malloc(sizeof(struct sock_info))) == NULL) {
+      return;
+    }
+    new_sock_info->my_sockaddr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
+    new_sock_info->peer_sockaddr= (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
+
+    if (new_sock_info->my_sockaddr == NULL || new_sock_info->peer_sockaddr == NULL) {
+      if (new_sock_info->my_sockaddr != NULL) { free(new_sock_info->my_sockaddr); }
+      if (new_sock_info->peer_sockaddr != NULL) { free(new_sock_info->peer_sockaddr); }
+      free(new_sock_info);
+      return;
+    }
+
+    new_sock_info->current_backlog++;
+    cloneSockInfo(new_sock_info, sock_info);
+
+    new_sock_info->peer_sockaddr->sin_addr = income_src_ip;
+    new_sock_info->peer_sockaddr->sin_port = income_src_port;
+
+    // FIXTME: 아래 2개 수정할 필요 있음
+    new_sock_info->peer_sockaddr->sin_len = new_sock_info->my_sockaddr->sin_len;
+    new_sock_info->peer_sockaddr->sin_family = AF_INET;
+
+    sock_table.push_back(new_sock_info);
+    sock_info->child_sock_list->push_back(new_sock_info);
+
+    sendPacket("IPv4", std::move(response_packet));
+  }
+
   return;
 }
 void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
