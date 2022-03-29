@@ -34,7 +34,7 @@ enum Status {
   EXTAB
 };
 
-struct sock_table_item {
+struct sock_info {
   int pid;
   int fd;
   struct kens_sockaddr_in* my_sockaddr;
@@ -43,8 +43,8 @@ struct sock_table_item {
   int backlog;
 };
 
-std::vector<sock_table_item*> sock_table;
-using sock_table_item_itr = typename std::vector<struct sock_table_item*>::iterator;
+std::list<sock_info*> sock_table;
+using sock_info_itr = typename std::list<struct sock_info*>::iterator;
 
 struct kens_sockaddr_in {
   __uint8_t sin_len;
@@ -53,8 +53,8 @@ struct kens_sockaddr_in {
   uint32_t sin_addr;
 };
 
-sock_table_item_itr find_sock_alloc_item(int pid, int fd) {
-  sock_table_item_itr itr;
+sock_info_itr find_sock_info(int pid, int fd) {
+  sock_info_itr itr;
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     if ((*itr)->pid == pid && (*itr)->fd == fd) { break; }
   }
@@ -63,51 +63,45 @@ sock_table_item_itr find_sock_alloc_item(int pid, int fd) {
 
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
                                    const SystemCallParameter &param) {
-
-  // Remove below
-  (void)syscallUUID;
-  (void)pid;
-
-  int fd;
-
   switch (param.syscallNumber) {
   case SOCKET: {
     // this->syscall_socket(syscallUUID, pid, std::get<int>(param.params[0]),
     //                      std::get<int>(param.params[1]));
-    struct sock_table_item* sock_table_item = (struct sock_table_item*) malloc(sizeof(struct sock_table_item));
-    if (sock_table_item == NULL) {
-      printf("Error: can't allocate memory(sock_table_item)\n");
+    struct sock_info* sock_info = (struct sock_info*) malloc(sizeof(struct sock_info));
+    if (sock_info == NULL) {
+      printf("Error: can't allocate memory(sock_info)\n");
       returnSystemCall(syscallUUID, -1);
+      break;
     }
 
-    fd = createFileDescriptor(pid);
+    int fd = createFileDescriptor(pid);
 
-    sock_table_item->my_sockaddr = NULL;
-    sock_table_item->fd = fd;
-    sock_table_item->pid = pid;
-    sock_table_item->status = CLOSED;
-    sock_table.push_back(sock_table_item);
+    sock_info->my_sockaddr = NULL;
+    sock_info->fd = fd;
+    sock_info->pid = pid;
+    sock_info->status = CLOSED;
+    sock_table.push_back(sock_info);
 
     returnSystemCall(syscallUUID, fd);
     break;
   }
   case CLOSE: {
     // this->syscall_close(syscallUUID, pid, std::get<int>(param.params[0]));
-    fd = std::get<int>(param.params[0]);
-    sock_table_item_itr sock_table_item_itr = find_sock_alloc_item(pid, fd);
+    int fd = std::get<int>(param.params[0]);
+    sock_info_itr sock_info_itr = find_sock_info(pid, fd);
 
-    if (sock_table_item_itr == sock_table.end()) {
+    if (sock_info_itr == sock_table.end()) {
       returnSystemCall(syscallUUID, -1);
       break;
     }
-    struct sock_table_item* sock_table_item = *sock_table_item_itr;
+    struct sock_info* sock_info = *sock_info_itr;
 
     removeFileDescriptor(pid, fd);
 
-    if (sock_table_item->my_sockaddr != NULL)
-      free(sock_table_item->my_sockaddr);
-    free(sock_table_item);
-    sock_table.erase(sock_table_item_itr);
+    if (sock_info->my_sockaddr != NULL)
+      free(sock_info->my_sockaddr);
+    free(sock_info);
+    sock_table.erase(sock_info_itr);
 
     returnSystemCall(syscallUUID, 0);
     break;
@@ -131,25 +125,25 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
   case LISTEN: {
     // this->syscall_listen(syscallUUID, pid, std::get<int>(param.params[0]),
     //                      std::get<int>(param.params[1]));
-    fd = std::get<int>(param.params[0]);
+    int fd = std::get<int>(param.params[0]);
     int backlog = std::get<int>(param.params[1]);
     
-    sock_table_item_itr sock_table_item_itr = find_sock_alloc_item(pid, fd);
-    struct sock_table_item* sock_table_item = *sock_table_item_itr;
+    sock_info_itr sock_info_itr = find_sock_info(pid, fd);
+    struct sock_info* sock_info = *sock_info_itr;
 
-    if (sock_table_item_itr == sock_table.end() || sock_table_item->status == E::LISTEN) {
+    if (sock_info_itr == sock_table.end() || sock_info->status == E::LISTEN) {
       returnSystemCall(syscallUUID, -1);
       break;
     }
 
     if (backlog < 0) {
-      sock_table_item->backlog = 0;
+      sock_info->backlog = 0;
     } else if (backlog > SOMAXCONN) {
-      sock_table_item->backlog = SOMAXCONN;
+      sock_info->backlog = SOMAXCONN;
     } else {
-      sock_table_item->backlog = backlog;
+      sock_info->backlog = backlog;
     }
-    sock_table_item->status = E::LISTEN;
+    sock_info->status = E::LISTEN;
 
     break;
   }
@@ -168,8 +162,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     int param_fd = std::get<int>(param.params[0]);
     struct sockaddr_in *param_addr = 
       (struct sockaddr_in *)(static_cast<struct sockaddr *>(std::get<void *>(param.params[1])));
-    sock_table_item_itr findItr;
-    sock_table_item_itr itr;
+    sock_info_itr findItr;
+    sock_info_itr itr;
     bool isFind = false;
 
     for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
@@ -198,23 +192,25 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     if (!isFind)
       returnSystemCall(syscallUUID, -1);
 
-    struct sock_table_item* sock_table_item = *findItr;
+    struct sock_info* sock_info = *findItr;
     // Prevent Double Bind. If it is already bound, return -1. ("Same addr and Diff port" is not allowed.)
-    if (sock_table_item->my_sockaddr != NULL) {
+    if (sock_info->my_sockaddr != NULL) {
       returnSystemCall(syscallUUID, -1);
+      break;
     }
 
     struct kens_sockaddr_in* addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
-    if (sock_table_item == NULL) {
+    if (sock_info == NULL) {
       printf("Error: can't allocate memory(sockaddr_in)\n");
       returnSystemCall(syscallUUID, -1);
+      break;
     }
 
     addr->sin_len = sizeof(param_addr->sin_addr);
     addr->sin_family = param_addr->sin_family;
     addr->sin_port = param_addr->sin_port;
     addr->sin_addr = param_addr->sin_addr.s_addr;
-    sock_table_item->my_sockaddr = addr;
+    sock_info->my_sockaddr = addr;
 
     returnSystemCall(syscallUUID, 0);
     break;
@@ -224,10 +220,10 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     //     syscallUUID, pid, std::get<int>(param.params[0]),
     //     static_cast<struct sockaddr *>(std::get<void *>(param.params[1])),
     //     static_cast<socklen_t *>(std::get<void *>(param.params[2])));
-    fd = std::get<int>(param.params[0]);
+    int fd = std::get<int>(param.params[0]);
     struct sockaddr_in* addr = (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param.params[1]));
     socklen_t* addrlen = static_cast<socklen_t *>(std::get<void *>(param.params[2]));
-    sock_table_item_itr found_item_itr = find_sock_alloc_item(pid, fd);
+    sock_info_itr found_item_itr = find_sock_info(pid, fd);
 
     if (found_item_itr == sock_table.end()) {
       returnSystemCall(syscallUUID, -1);
