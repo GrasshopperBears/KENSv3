@@ -276,28 +276,54 @@ void setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint3
   packet->writeData(SEGMENT_OFFSET + 2, dst_port, 2);
 }
 
-bool isSYNPacket(Packet *packet) {
-  uint8_t flags = 0;
-  packet->readData(SEGMENT_OFFSET + 13, &flags, 1);
-  return (flags >> 1) & 1;
-}
-
-bool isSYNACKPacket(Packet *packet) {
+bool isSynAckPacket(Packet *packet) {
   uint8_t flags = 0;
   packet->readData(SEGMENT_OFFSET + 13, &flags, 1);
   return ((flags >> 1) & 1) & ((flags >> 4) & 1);
 }
 
-bool isACKPacket(Packet *packet) {
+bool isSynPacket(Packet *packet) {
+  uint8_t flags = 0;
+  packet->readData(SEGMENT_OFFSET + 13, &flags, 1);
+  return (flags >> 1) & 1;
+}
+
+bool isAckPacket(Packet *packet) {
   uint8_t flags = 0;
   packet->readData(SEGMENT_OFFSET + 13, &flags, 1);
   return (flags >> 4) & 1;
 }
 
+void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
+  uint32_t income_src_ip, income_dst_ip;
+  uint16_t income_src_port, income_dst_port;
+
+  getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+  return;
+}
+void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
+  uint32_t income_src_ip, income_dst_ip;
+  uint16_t income_src_port, income_dst_port;
+
+  getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+  return;
+}
+void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
+  uint32_t income_src_ip, income_dst_ip;
+  uint16_t income_src_port, income_dst_port;
+
+  getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+  return;
+}
+
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
-  // Remove below
-  (void)fromModule;
-  (void)packet;
+  if (isSynAckPacket(&packet)) {
+    return handleSynAckPacket(fromModule, &packet);
+  } else if (isSynPacket(&packet)) {
+    return handleSynPacket(fromModule, &packet);
+  } else if (isAckPacket(&packet)) {
+    return handleAckPacket(fromModule, &packet);
+  }
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
