@@ -34,6 +34,10 @@ enum Status {
   SYN_SENT,
   ESTAB
 };
+
+enum TimerType {
+  ACCEPT
+};
 // ------------------enums end------------------
 
 // ----------------structs start----------------
@@ -55,12 +59,20 @@ struct kens_sockaddr_in {
   in_port_t sin_port;
   uint32_t sin_addr;
 };
+
+struct TimerPayload {
+  UUID syscallUUID;
+  int pid;
+  SystemCallInterface::SystemCallParameter *param;
+  TimerType timerType;
+};
 // ----------------structs end----------------
 
 const int PACKET_OFFSET = 14;
 const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
 
 std::list<sock_info*> sock_table;
+std::list<UUID> accept_wait_timers;
 using sock_info_itr = typename std::list<struct sock_info*>::iterator;
 
 sock_info_itr find_sock_info(int pid, int fd) {
@@ -74,8 +86,56 @@ sock_info_itr find_sock_info(int pid, int fd) {
 void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
                                   SystemCallInterface::SystemCallParameter *param) {
   int fd = std::get<int>(param->params[0]);
-  struct sockaddr_in* addr = (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param->params[1]));
+  struct sockaddr_in* param_addr = (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param->params[1]));
   socklen_t* addrlen = static_cast<socklen_t *>(std::get<void *>(param->params[2]));
+
+  struct sock_info *sock_info, *sock_info_in_backlog = NULL;
+  sock_info_itr itr;
+  bool flag = false;
+
+  for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
+    sock_info = *itr;
+    // only for proper pid and fd
+    if (sock_info->pid == pid && sock_info->parent_sock != NULL && sock_info->parent_sock->fd == fd) {
+      if (sock_info_in_backlog == NULL && sock_info->status == Status::ESTAB && sock_info->fd < 0) {
+        sock_info_in_backlog = *itr;
+        flag = true;
+      } else if (sock_info->status == Status::SYN_RCVD) {
+        flag = true;
+      }
+    }
+  }
+
+  // No socket is established or syn recieved
+  if (!flag) {
+    free(param);
+    returnSystemCall(syscallUUID, -1);
+    return;
+  }
+
+  // Socket that is syn recieved exist
+  if (sock_info_in_backlog == NULL) {
+    struct TimerPayload *payload = (struct TimerPayload*) malloc(sizeof(struct TimerPayload));
+    payload->syscallUUID = syscallUUID;
+    payload->pid = pid;
+    payload->param = param;
+    payload->timerType = TimerType::ACCEPT;
+
+    UUID timerId = addTimer(payload, 2000);   // 2ms
+    accept_wait_timers.push_back(timerId);
+    return;
+  }
+
+  sock_info_in_backlog->fd = createFileDescriptor(sock_info_in_backlog->pid);
+
+  param_addr->sin_addr.s_addr = sock_info_in_backlog->peer_sockaddr->sin_addr;
+  param_addr->sin_family = sock_info_in_backlog->peer_sockaddr->sin_family;
+  param_addr->sin_port = sock_info_in_backlog->peer_sockaddr->sin_port;
+
+  // TODO: set addrlen
+
+  free(param);
+  returnSystemCall(syscallUUID, sock_info_in_backlog->fd);
 }
 
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
@@ -95,10 +155,11 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     sock_info->my_sockaddr = NULL;
     sock_info->peer_sockaddr = NULL;
-    sock_info->child_sock_list = NULL;
     sock_info->fd = fd;
     sock_info->pid = pid;
     sock_info->status = Status::CLOSED;
+    sock_info->parent_sock = NULL;
+    sock_info->child_sock_list = new std::list<struct sock_info*>();
     sock_table.push_back(sock_info);
 
     returnSystemCall(syscallUUID, fd);
@@ -166,8 +227,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     }
     sock_info->status = Status::LISTEN;
     sock_info->current_backlog = 0;
-    sock_info->child_sock_list = new std::list<struct sock_info*>();
 
+    returnSystemCall(syscallUUID, 0);
     break;
   }
   case ACCEPT: {
@@ -322,16 +383,21 @@ void cloneSockInfo(struct sock_info* dst, struct sock_info* src) {
   memcpy(dst->my_sockaddr, src->my_sockaddr, sizeof(struct kens_sockaddr_in));
   dst->parent_sock = src;
   dst->pid = src->pid;
-  dst->status = E::SYN_RCVD;
+  dst->status = Status::SYN_RCVD;
 }
 
 
 void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
+  Packet response_packet = packet->clone();
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
-  return;
+
+  // TODO: should be implemented
+  setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
+  sendPacket("IPv4", std::move(response_packet));
+  // return;
 }
 
 void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
@@ -381,7 +447,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
       return;
     }
 
-    new_sock_info->current_backlog++;
+    sock_info->current_backlog++;
     cloneSockInfo(new_sock_info, sock_info);
 
     new_sock_info->peer_sockaddr->sin_addr = income_src_ip;
@@ -438,8 +504,20 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
-  // Remove below
-  (void)payload;
+  TimerPayload *timerPayload = std::any_cast<TimerPayload*>(payload);
+  switch (timerPayload->timerType)
+  {
+  case TimerType::ACCEPT: {
+    // TODO: 버그 가능성 없는지 확인. 단순히 리스트 앞을 제거해서 A 타이머가 작동하고 B 타이머를 삭제할 수가 있음.
+    UUID waiterId = accept_wait_timers.front();
+    cancelTimer(waiterId);
+    accept_wait_timers.erase(accept_wait_timers.begin());
+    acceptHandler(timerPayload->syscallUUID, timerPayload->pid, timerPayload->param);
+    free(timerPayload);
+  }
+  default:
+    break;
+  }
 }
 
 } // namespace E
