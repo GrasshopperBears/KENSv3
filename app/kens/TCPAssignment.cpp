@@ -77,6 +77,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     int fd = createFileDescriptor(pid);
 
     sock_info->my_sockaddr = NULL;
+    sock_info->peer_sockaddr = NULL;
     sock_info->fd = fd;
     sock_info->pid = pid;
     sock_info->status = CLOSED;
@@ -98,10 +99,12 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     removeFileDescriptor(pid, fd);
 
+    sock_table.erase(sock_info_itr);
     if (sock_info->my_sockaddr != NULL)
       free(sock_info->my_sockaddr);
+    if (sock_info->peer_sockaddr != NULL)
+      free(sock_info->peer_sockaddr);
     free(sock_info);
-    sock_table.erase(sock_info_itr);
 
     returnSystemCall(syscallUUID, 0);
     break;
