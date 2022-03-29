@@ -32,7 +32,7 @@ enum Status {
   LISTEN,
   SYN_RCVD,
   SYN_SENT,
-  EXTAB
+  ESTAB
 };
 // ------------------enums end------------------
 
@@ -345,7 +345,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
   // Server: initiallize TCP connection (1st step of 3-way handshake)
   if (sock_info->status == Status::LISTEN) {
-    Packet response_packet = packet->clone();
+    Packet response_packet = packet->clone();   // TODO: more than clone
     struct sock_info* new_sock_info;
 
     setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
@@ -388,12 +388,32 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
   return;
 }
+
 void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
+  Packet packet_to_client = packet->clone();
+  struct sock_info* sock_info;
+  sock_info_itr itr;
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
-  return;
+
+  for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
+    sock_info = *itr;
+    if (sock_info->my_sockaddr->sin_addr == 0 || sock_info->my_sockaddr->sin_addr == income_dst_ip) {
+      if (sock_info->status == Status::SYN_RCVD) {
+        break;
+      }
+    }
+  }
+  if (itr == sock_table.end()) {
+    return;
+  }
+  sock_info->status = Status::ESTAB;
+  sock_info->parent_sock->current_backlog--;
+
+  setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
+  sendPacket("IPv4", std::move(packet_to_client));
 }
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
