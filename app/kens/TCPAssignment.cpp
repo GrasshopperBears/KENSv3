@@ -90,7 +90,9 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid, SystemCallInterface
 
   sock_table_item_itr itr = find_sock_alloc_item(pid, fd);
   if (itr == sock_table.end()) {
+    free(param);
     returnSystemCall(syscallUUID, -1);
+    return;
   }
   struct sock_table_item* found_sock_table_item = *itr, *found_sock_item_in_backlog = NULL;
 
@@ -179,12 +181,12 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     removeFileDescriptor(pid, fd);
 
+    sock_table.erase(sock_table_item_itr);
     if (sock_table_item->my_sockaddr != NULL)
       free(sock_table_item->my_sockaddr);
     if (sock_table_item->peer_sockaddr != NULL)
       free(sock_table_item->peer_sockaddr);
     free(sock_table_item);
-    sock_table.erase(sock_table_item_itr);
 
     returnSystemCall(syscallUUID, 0);
     break;
@@ -494,10 +496,16 @@ void TCPAssignment::handleSYNPacket(std::string fromModule, Packet *packet) {
 
     found_sock_table_item->backlog_count++;
     memcpy(new_sock_table_item, found_sock_table_item, sizeof(struct sock_table_item));
+
+    new_sock_table_item->my_sockaddr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
+    new_sock_table_item->peer_sockaddr= (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
+
     new_sock_table_item->fd = -1;
     new_sock_table_item->status = E::SYN_RCVD;
     sock_table.push_back(new_sock_table_item);
     found_sock_table_item->backlog_list.push_back(new_sock_table_item);
+
+    memcpy(new_sock_table_item->my_sockaddr, found_sock_table_item->my_sockaddr, sizeof(struct kens_sockaddr_in));
 
     new_sock_table_item->parent_socket = found_sock_table_item;
     new_sock_table_item->peer_sockaddr->sin_addr = income_src_ip;
