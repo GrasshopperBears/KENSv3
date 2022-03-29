@@ -26,6 +26,7 @@ void TCPAssignment::initialize() {}
 
 void TCPAssignment::finalize() {}
 
+// ------------------enums start------------------
 enum Status {
   CLOSED,
   LISTEN,
@@ -33,7 +34,9 @@ enum Status {
   SYN_SENT,
   EXTAB
 };
+// ------------------enums end------------------
 
+// ----------------structs start----------------
 struct sock_info {
   int pid;
   int fd;
@@ -43,15 +46,19 @@ struct sock_info {
   int backlog;
 };
 
-std::list<sock_info*> sock_table;
-using sock_info_itr = typename std::list<struct sock_info*>::iterator;
-
 struct kens_sockaddr_in {
   __uint8_t sin_len;
   sa_family_t sin_family;
   in_port_t sin_port;
   uint32_t sin_addr;
 };
+// ----------------structs end----------------
+
+const int PACKET_OFFSET = 14;
+const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
+
+std::list<sock_info*> sock_table;
+using sock_info_itr = typename std::list<struct sock_info*>::iterator;
 
 sock_info_itr find_sock_info(int pid, int fd) {
   sock_info_itr itr;
@@ -255,24 +262,42 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
   }
 }
 
-const int PACKET_OFFSET = 14;
-
-void getPacketSrcDst(Packet packet, uint8_t *src_ip, uint8_t *dst_ip) {
-  packet.readData(PACKET_OFFSET + 12, src_ip, 4);
-  packet.readData(PACKET_OFFSET + 16, dst_ip, 4);
+void getPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {
+  packet->readData(PACKET_OFFSET + 12, src_ip, 4);
+  packet->readData(PACKET_OFFSET + 16, dst_ip, 4);
+  packet->readData(SEGMENT_OFFSET, src_port, 2);
+  packet->readData(SEGMENT_OFFSET + 2, dst_port, 2);
 }
 
-void setPacketSrcDst(Packet packet, uint8_t *src_ip, uint8_t *dst_ip) {
-  packet.writeData(PACKET_OFFSET + 12, src_ip, 4);
-  packet.writeData(PACKET_OFFSET + 16, dst_ip, 4);
+void setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {
+  packet->writeData(PACKET_OFFSET + 12, src_ip, 4);
+  packet->writeData(PACKET_OFFSET + 16, dst_ip, 4);
+  packet->writeData(SEGMENT_OFFSET, src_port, 2);
+  packet->writeData(SEGMENT_OFFSET + 2, dst_port, 2);
+}
+
+bool isSYNPacket(Packet *packet) {
+  uint8_t flags = 0;
+  packet->readData(SEGMENT_OFFSET + 13, &flags, 1);
+  return (flags >> 1) & 1;
+}
+
+bool isSYNACKPacket(Packet *packet) {
+  uint8_t flags = 0;
+  packet->readData(SEGMENT_OFFSET + 13, &flags, 1);
+  return ((flags >> 1) & 1) & ((flags >> 4) & 1);
+}
+
+bool isACKPacket(Packet *packet) {
+  uint8_t flags = 0;
+  packet->readData(SEGMENT_OFFSET + 13, &flags, 1);
+  return (flags >> 4) & 1;
 }
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   // Remove below
   (void)fromModule;
   (void)packet;
-  uint8_t income_src_ip[4], income_dst_ip[4];
-  getPacketSrcDst(packet, income_src_ip, income_dst_ip);
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
