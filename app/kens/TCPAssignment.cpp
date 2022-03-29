@@ -189,6 +189,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       ) {
         if ((*itr)->my_sockaddr->sin_port == param_addr->sin_port) {
           returnSystemCall(syscallUUID, -1);
+          break;
         }
       }
       // Find same pid, same fd.
@@ -199,8 +200,10 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     }
 
     // Prevent Closed sockets or unexisted sockets.
-    if (!isFind)
+    if (!isFind) {
       returnSystemCall(syscallUUID, -1);
+      break;
+    }
 
     struct sock_info* sock_info = *findItr;
     // Prevent Double Bind. If it is already bound, return -1. ("Same addr and Diff port" is not allowed.)
