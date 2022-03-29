@@ -412,10 +412,10 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     sock_info = *itr;
-    if (sock_info->my_sockaddr->sin_port == income_dst_port &&
-          (sock_info->my_sockaddr->sin_addr == 0
-            || sock_info->my_sockaddr->sin_addr == income_dst_ip)
-    ) {
+    if (sock_info->my_sockaddr != NULL
+        && sock_info->my_sockaddr->sin_port == income_dst_port
+        && (sock_info->my_sockaddr->sin_addr == 0 || sock_info->my_sockaddr->sin_addr == income_dst_ip))
+    {
       break;
     }
   }
