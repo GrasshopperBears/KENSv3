@@ -57,13 +57,13 @@ struct sock_table_item {
   int backlog;
   uint64_t backlog_count;
   sock_table_item* parent_socket;
-  std::vector<sock_table_item*> backlog_list;
+  std::list<sock_table_item*> *backlog_list;
   UUID syscallUUID;
 };
 
-std::vector<sock_table_item*> sock_table;
-std::vector<UUID> accept_wait_timers;
-using sock_table_item_itr = typename std::vector<struct sock_table_item*>::iterator;
+std::list<sock_table_item*> sock_table;
+std::list<UUID> accept_wait_timers;
+using sock_table_item_itr = typename std::list<struct sock_table_item*>::iterator;
 
 struct kens_sockaddr_in {
   __uint8_t sin_len;
@@ -97,7 +97,7 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid, SystemCallInterface
   struct sock_table_item* found_sock_table_item = *itr, *found_sock_item_in_backlog = NULL;
 
 
-  for (itr = found_sock_table_item->backlog_list.begin(); itr != found_sock_table_item->backlog_list.end(); ++itr) {
+  for (itr = found_sock_table_item->backlog_list->begin(); itr != found_sock_table_item->backlog_list->end(); ++itr) {
     if (found_sock_item_in_backlog == NULL) {
       if ((*itr)->status == E::ESTAB && (*itr)->fd < 0) {
         found_sock_item_in_backlog = *itr;
@@ -162,7 +162,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     sock_table_item->fd = fd;
     sock_table_item->pid = pid;
     sock_table_item->status = CLOSED;
-    sock_table_item->backlog_list = {};
+    sock_table_item->backlog_list = new std::list<struct sock_table_item*>();
     sock_table.push_back(sock_table_item);
 
     returnSystemCall(syscallUUID, fd);
@@ -230,7 +230,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     }
     sock_table_item->status = E::LISTEN;
     sock_table_item->syscallUUID = syscallUUID;
-    sock_table_item->backlog_count = 0;
+    sock_table_item->backlog_count = 0;    
     returnSystemCall(syscallUUID, 0);
 
     break;
@@ -459,6 +459,19 @@ void TCPAssignment::handleSYNACKPacket(std::string fromModule, Packet *packet) {
   sendPacket("IPv4", packet_to_client);
 }
 
+// should manually set peer address
+void cloneSockTableItem(struct sock_table_item* dst, struct sock_table_item* src) {
+  dst->backlog = 0;
+  dst->backlog_count = 0;
+  dst->backlog_list = new std::list<struct sock_table_item*>();
+  dst->fd = -1;
+  memcpy(dst->my_sockaddr, src->my_sockaddr, sizeof(struct kens_sockaddr_in));
+  dst->parent_socket = src;
+  dst->pid = src->pid;
+  dst->status = E::SYN_RCVD;
+  dst->syscallUUID = src->syscallUUID;
+}
+
 void TCPAssignment::handleSYNPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
@@ -491,29 +504,23 @@ void TCPAssignment::handleSYNPacket(std::string fromModule, Packet *packet) {
       // setSegmentFlag(&packet_to_client, E::RST);
       // sendPacket("IPv4", packet_to_client);
       return;
-    }
+    }    
     struct sock_table_item* new_sock_table_item = (struct sock_table_item*) malloc(sizeof(struct sock_table_item));
-
-    found_sock_table_item->backlog_count++;
-    memcpy(new_sock_table_item, found_sock_table_item, sizeof(struct sock_table_item));
-
     new_sock_table_item->my_sockaddr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
     new_sock_table_item->peer_sockaddr= (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
 
-    new_sock_table_item->fd = -1;
-    new_sock_table_item->status = E::SYN_RCVD;
-    sock_table.push_back(new_sock_table_item);
-    found_sock_table_item->backlog_list.push_back(new_sock_table_item);
+    found_sock_table_item->backlog_count++;
+    cloneSockTableItem(new_sock_table_item, found_sock_table_item);
 
-    memcpy(new_sock_table_item->my_sockaddr, found_sock_table_item->my_sockaddr, sizeof(struct kens_sockaddr_in));
-
-    new_sock_table_item->parent_socket = found_sock_table_item;
     new_sock_table_item->peer_sockaddr->sin_addr = income_src_ip;
     new_sock_table_item->peer_sockaddr->sin_port = income_src_port;
 
     // FIXTME: 아래 2개 수정할 필요 있음
     new_sock_table_item->peer_sockaddr->sin_len = new_sock_table_item->my_sockaddr->sin_len;
     new_sock_table_item->peer_sockaddr->sin_family = AF_INET;
+
+    sock_table.push_back(new_sock_table_item);
+    found_sock_table_item->backlog_list->push_back(new_sock_table_item);
 
     // uint32_t syn = getSeqNumber(packet);
     // uint32_t ack = 1234;
