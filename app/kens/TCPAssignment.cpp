@@ -44,7 +44,7 @@ enum TimerType {
 struct TimerPayload {
   UUID syscallUUID;
   int pid;
-  const SystemCallInterface::SystemCallParameter *param;
+  SystemCallInterface::SystemCallParameter *param;
   TimerType timerType;
 };
 
@@ -55,6 +55,8 @@ struct sock_table_item {
   struct kens_sockaddr_in* peer_sockaddr;
   enum Status status;
   int backlog;
+  uint64_t backlog_count;
+  sock_table_item* parent_socket;
   std::vector<sock_table_item*> backlog_list;
   UUID syscallUUID;
 };
@@ -78,36 +80,57 @@ sock_table_item_itr find_sock_alloc_item(int pid, int fd) {
   return itr;
 }
 
-void TCPAssignment::acceptHandler(UUID syscallUUID, int pid, const SystemCallInterface::SystemCallParameter *param) {
-  printf("accept\n");
+void TCPAssignment::acceptHandler(UUID syscallUUID, int pid, SystemCallInterface::SystemCallParameter *param) {
+  int fd = std::get<int>(param->params[0]);
+  struct sockaddr_in* addr = (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param->params[1]));
+  socklen_t* addrlen = static_cast<socklen_t *>(std::get<void *>(param->params[2]));
+  struct sockaddr_in *param_addr = 
+      (struct sockaddr_in *)(static_cast<struct sockaddr *>(std::get<void *>(param->params[1])));
+  bool flag = false;
 
-  sock_table_item_itr itr;
+  sock_table_item_itr itr = find_sock_alloc_item(pid, fd);
+  if (itr == sock_table.end()) {
+    returnSystemCall(syscallUUID, -1);
+  }
+  struct sock_table_item* found_sock_table_item = *itr, *found_sock_item_in_backlog = NULL;
 
-  for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
-    if ((*itr)->status == E::ESTAB) {
-      break;
+
+  for (itr = found_sock_table_item->backlog_list.begin(); itr != found_sock_table_item->backlog_list.end(); ++itr) {
+    if (found_sock_item_in_backlog == NULL) {
+      if ((*itr)->status == E::ESTAB && (*itr)->fd < 0) {
+        found_sock_item_in_backlog = *itr;
+        flag = true;
+      }
+    }
+    if ((*itr)->status == E::SYN_RCVD) {
+      flag = true;
     }
   }
-  if (itr == sock_table.end()) {
-    struct TimerPayload payload;
-    payload.syscallUUID = syscallUUID;
-    payload.pid = pid;
-    payload.param = param;
-    payload.timerType = E::ACCEPT;
+  if (!flag) {
+    free(param);
+    returnSystemCall(syscallUUID, -1);
+    return;
+  }
+  if (found_sock_item_in_backlog == NULL) {
+    struct TimerPayload *payload = (struct TimerPayload*) malloc(sizeof(struct TimerPayload));
+    payload->syscallUUID = syscallUUID;
+    payload->pid = pid;
+    payload->param = param;
+    payload->timerType = E::ACCEPT;
 
     UUID timerId = addTimer(payload, 2000);
     accept_wait_timers.push_back(timerId);
+
     return;
   }
-  
-  struct sock_table_item* found_sock_table_item = *itr;
-  struct sockaddr_in *param_addr = 
-      (struct sockaddr_in *)(static_cast<struct sockaddr *>(std::get<void *>(param->params[1])));
-  
+  found_sock_table_item = found_sock_item_in_backlog;
+  found_sock_table_item->fd = createFileDescriptor(found_sock_table_item->pid);
+
   param_addr->sin_addr.s_addr = found_sock_table_item->peer_sockaddr->sin_addr;
   param_addr->sin_family = found_sock_table_item->peer_sockaddr->sin_family;
   param_addr->sin_port = found_sock_table_item->peer_sockaddr->sin_port;
-
+  
+  free(param);
   returnSystemCall(syscallUUID, found_sock_table_item->fd);
 }
 
@@ -158,6 +181,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     if (sock_table_item->my_sockaddr != NULL)
       free(sock_table_item->my_sockaddr);
+    if (sock_table_item->peer_sockaddr != NULL)
+      free(sock_table_item->peer_sockaddr);
     free(sock_table_item);
     sock_table.erase(sock_table_item_itr);
 
@@ -185,7 +210,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     //                      std::get<int>(param.params[1]));
     fd = std::get<int>(param.params[0]);
     int backlog = std::get<int>(param.params[1]);
-    printf("listen, backlog=%d\n", backlog);
     
     sock_table_item_itr sock_table_item_itr = find_sock_alloc_item(pid, fd);
     struct sock_table_item* sock_table_item = *sock_table_item_itr;
@@ -204,24 +228,27 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     }
     sock_table_item->status = E::LISTEN;
     sock_table_item->syscallUUID = syscallUUID;
+    sock_table_item->backlog_count = 0;
     returnSystemCall(syscallUUID, 0);
 
     break;
   }
-  case ACCEPT:
+  case ACCEPT: {
     // this->syscall_accept(
     //     syscallUUID, pid, std::get<int>(param.params[0]),
     //     static_cast<struct sockaddr *>(std::get<void *>(param.params[1])),
     //     static_cast<socklen_t *>(std::get<void *>(param.params[2])));
-
-    acceptHandler(syscallUUID, pid, &param);
+    SystemCallParameter *param_to_pass = (SystemCallParameter *) malloc(sizeof(SystemCallParameter));
+    memcpy(param_to_pass, &param, sizeof(SystemCallParameter));
+    acceptHandler(syscallUUID, pid, param_to_pass);
     break;
+  }
   case BIND: {
     // this->syscall_bind(
     //     syscallUUID, pid, std::get<int>(param.params[0]),
     //     static_cast<struct sockaddr *>(std::get<void *>(param.params[1])),
     //     (socklen_t)std::get<int>(param.params[2]));
-    printf("bind\n");
+
     const in_addr_t NL_INADDR_ANY = htonl(INADDR_ANY);
     int param_fd = std::get<int>(param.params[0]);
     struct sockaddr_in *param_addr = 
@@ -269,6 +296,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     if (sock_table_item == NULL) {
       printf("Error: can't allocate memory(sockaddr_in)\n");
       returnSystemCall(syscallUUID, -1);
+      break;
     }
 
     my_addr->sin_len = sizeof(param_addr->sin_addr);
@@ -396,6 +424,8 @@ void TCPAssignment::handleACKPacket(std::string fromModule, Packet *packet) {
   uint16_t income_src_port, income_dst_port;
   Packet packet_to_client = packet->clone();
 
+  getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+  
   sock_table_item_itr itr;
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     if ((*itr)->my_sockaddr->sin_addr == 0 || (*itr)->my_sockaddr->sin_addr == income_dst_ip) {
@@ -411,8 +441,8 @@ void TCPAssignment::handleACKPacket(std::string fromModule, Packet *packet) {
   }
   struct sock_table_item* found_sock_table_item = *itr;
   found_sock_table_item->status = E::ESTAB;
+  found_sock_table_item->parent_socket->backlog_count--;
 
-  getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
   setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
   sendPacket("IPv4", packet_to_client);
 }
@@ -453,23 +483,26 @@ void TCPAssignment::handleSYNPacket(std::string fromModule, Packet *packet) {
     Packet packet_to_client = packet->clone();
 
     setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
-    if (found_sock_table_item->backlog <= found_sock_table_item->backlog_list.size()) {
-      printf("overflow\n");
-      setSegmentFlag(&packet_to_client, E::RST);
-      sendPacket("IPv4", packet_to_client);
+
+    // backlog count check
+    if (found_sock_table_item->backlog <= found_sock_table_item->backlog_count) {
+      // setSegmentFlag(&packet_to_client, E::RST);
+      // sendPacket("IPv4", packet_to_client);
       return;
     }
     struct sock_table_item* new_sock_table_item = (struct sock_table_item*) malloc(sizeof(struct sock_table_item));
 
+    found_sock_table_item->backlog_count++;
     memcpy(new_sock_table_item, found_sock_table_item, sizeof(struct sock_table_item));
-    new_sock_table_item->fd = createFileDescriptor(new_sock_table_item->pid);
+    new_sock_table_item->fd = -1;
     new_sock_table_item->status = E::SYN_RCVD;
     sock_table.push_back(new_sock_table_item);
     found_sock_table_item->backlog_list.push_back(new_sock_table_item);
 
-
+    new_sock_table_item->parent_socket = found_sock_table_item;
     new_sock_table_item->peer_sockaddr->sin_addr = income_src_ip;
     new_sock_table_item->peer_sockaddr->sin_port = income_src_port;
+
     // FIXTME: 아래 2개 수정할 필요 있음
     new_sock_table_item->peer_sockaddr->sin_len = new_sock_table_item->my_sockaddr->sin_len;
     new_sock_table_item->peer_sockaddr->sin_family = AF_INET;
@@ -533,28 +566,24 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   uint16_t income_src_port, income_dst_port;
 
   if (isSYNACKPacket(&packet)) {
-    printf("synack arrived\n");
     return handleSYNACKPacket(fromModule, &packet);
   } else if (isSYNPacket(&packet)) {
-    printf("syn packet~\n");
     return handleSYNPacket(fromModule, &packet);
   } else if (isACKPacket(&packet)) {
-    printf("ack arrived\n");
     return handleACKPacket(fromModule, &packet);
-  } else {
-    printf("another packet\n");
   }
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
-  TimerPayload timerPayload = std::any_cast<TimerPayload>(payload);
-  switch (timerPayload.timerType)
+  TimerPayload *timerPayload = std::any_cast<TimerPayload*>(payload);
+  switch (timerPayload->timerType)
   {
   case E::ACCEPT: {
     UUID waiterId = accept_wait_timers.front();
     cancelTimer(waiterId);
     accept_wait_timers.erase(accept_wait_timers.begin());
-    return acceptHandler(timerPayload.syscallUUID, timerPayload.pid, timerPayload.param);
+    acceptHandler(timerPayload->syscallUUID, timerPayload->pid, timerPayload->param);
+    free(timerPayload);
   }
   default:
     break;

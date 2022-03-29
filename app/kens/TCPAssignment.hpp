@@ -38,7 +38,7 @@ protected:
   virtual void handleSYNPacket(std::string fromModule, Packet *packet) final;
   virtual void handleSYNACKPacket(std::string fromModule, Packet *packet) final;
   virtual void handleACKPacket(std::string fromModule, Packet *packet) final;
-  virtual void acceptHandler(UUID syscallUUID, int pid, const SystemCallInterface::SystemCallParameter *param) final;
+  virtual void acceptHandler(UUID syscallUUID, int pid, SystemCallInterface::SystemCallParameter *param) final;
 };
 
 class TCPAssignmentProvider {
