@@ -420,6 +420,10 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
     }
   }
 
+  if (itr == sock_table.end()) {
+    return;
+  }
+
   // Server: initiallize TCP connection (1st step of 3-way handshake)
   if (sock_info->status == Status::LISTEN) {
     Packet response_packet = packet->clone();   // TODO: more than clone
