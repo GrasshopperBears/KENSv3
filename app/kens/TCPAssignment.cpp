@@ -73,6 +73,7 @@ const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
 
 std::list<sock_info*> sock_table;
 std::list<UUID> accept_wait_timers;
+std::map<UUID, bool> syscall_set;
 using sock_info_itr = typename std::list<struct sock_info*>::iterator;
 
 sock_info_itr find_sock_info(int pid, int fd) {
@@ -89,32 +90,54 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
   struct sockaddr_in* param_addr = (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param->params[1]));
   socklen_t* addrlen = static_cast<socklen_t *>(std::get<void *>(param->params[2]));
 
-  struct sock_info *sock_info, *sock_info_in_backlog = NULL;
+  struct sock_info *sock_info, *sock_info_in_backlog = NULL, *parent_sock_info;
   sock_info_itr itr;
-  bool flag = false;
+  std::map<UUID, bool>::iterator syscall_itr = syscall_set.find(syscallUUID);
+  // bool flag = false;
+  bool syscall_returned = syscall_itr->second;
 
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     sock_info = *itr;
     // only for proper pid and fd
     if (sock_info->pid == pid && sock_info->parent_sock != NULL && sock_info->parent_sock->fd == fd) {
-      if (sock_info_in_backlog == NULL && sock_info->status == Status::ESTAB && sock_info->fd < 0) {
-        sock_info_in_backlog = *itr;
-        flag = true;
+      // flag = true;
+      parent_sock_info = sock_info;
+      if (sock_info->status == Status::ESTAB && sock_info->fd < 0) {
+        // sock_info_in_backlog = *itr;
+        break;
       } else if (sock_info->status == Status::SYN_RCVD) {
-        flag = true;
+        // flag = true;
+        break;
       }
+    } else if (sock_info->pid == pid && sock_info->fd == fd) {
+      parent_sock_info = sock_info;
     }
   }
 
   // No socket is established or syn recieved
-  if (!flag) {
+  if (itr == sock_table.end() && syscall_returned) {
     free(param);
+    syscall_set.insert(std::make_pair(syscallUUID, true));
+    printf("accept error 2\n");
     returnSystemCall(syscallUUID, -1);
     return;
   }
+  if (sock_info->status == Status::ESTAB && sock_info->fd < 0) {
+    sock_info->fd = createFileDescriptor(sock_info->pid);
 
-  // Socket that is syn recieved exist
-  if (sock_info_in_backlog == NULL) {
+    param_addr->sin_addr.s_addr = sock_info->peer_sockaddr->sin_addr;
+    param_addr->sin_family = sock_info->peer_sockaddr->sin_family;
+    param_addr->sin_port = sock_info->peer_sockaddr->sin_port;
+
+    // TODO: set addrlen
+
+    free(param);
+    syscall_set.insert(std::make_pair(syscallUUID, true));
+    printf("returned\n");
+    returnSystemCall(syscallUUID, sock_info->fd);
+    return;
+  }
+  if (sock_info->status == Status::SYN_RCVD || (!syscall_returned && sock_info->child_sock_list->size() < sock_info->backlog)) {
     struct TimerPayload *payload = (struct TimerPayload*) malloc(sizeof(struct TimerPayload));
     payload->syscallUUID = syscallUUID;
     payload->pid = pid;
@@ -125,17 +148,10 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
     accept_wait_timers.push_back(timerId);
     return;
   }
-
-  sock_info_in_backlog->fd = createFileDescriptor(sock_info_in_backlog->pid);
-
-  param_addr->sin_addr.s_addr = sock_info_in_backlog->peer_sockaddr->sin_addr;
-  param_addr->sin_family = sock_info_in_backlog->peer_sockaddr->sin_family;
-  param_addr->sin_port = sock_info_in_backlog->peer_sockaddr->sin_port;
-
-  // TODO: set addrlen
-
   free(param);
-  returnSystemCall(syscallUUID, sock_info_in_backlog->fd);
+  syscall_set.insert(std::make_pair(syscallUUID, true));
+  printf("accept error 3, %d/%d\n", sock_info->child_sock_list->size(), sock_info->backlog);
+  returnSystemCall(syscallUUID, -1);
 }
 
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
@@ -226,6 +242,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       sock_info->backlog = backlog;
     }
     sock_info->status = Status::LISTEN;
+    printf("listening...........\n");
     sock_info->current_backlog = 0;
 
     returnSystemCall(syscallUUID, 0);
@@ -238,6 +255,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     //     static_cast<socklen_t *>(std::get<void *>(param.params[2])));
     SystemCallParameter *param_to_pass = (SystemCallParameter *) malloc(sizeof(SystemCallParameter));
     memcpy(param_to_pass, &param, sizeof(SystemCallParameter));
+    syscall_set.insert(std::make_pair(syscallUUID, false));
+    printf("accept call: %d\n", syscallUUID);
     acceptHandler(syscallUUID, pid, param_to_pass);
     break;
   }
@@ -413,7 +432,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     sock_info = *itr;
     if (sock_info->my_sockaddr != NULL
-        && sock_info->my_sockaddr->sin_port == income_dst_port
+        && (sock_info->my_sockaddr->sin_port == 0 || sock_info->my_sockaddr->sin_port == income_dst_port)
         && (sock_info->my_sockaddr->sin_addr == 0 || sock_info->my_sockaddr->sin_addr == income_dst_ip))
     {
       break;
@@ -421,6 +440,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
   }
 
   if (itr == sock_table.end()) {
+    // printf("syn err 1\n");
     return;
   }
 
@@ -435,6 +455,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
     if (sock_info->backlog <= sock_info->current_backlog) {
       // 무시 혹은 RST flag set
       // TODO: (maybe) clone한 패킷 처리?
+      printf("overflow");
       return;
     }
     
@@ -453,6 +474,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
     sock_info->current_backlog++;
     cloneSockInfo(new_sock_info, sock_info);
+    printf("SYN received!!!!!!!!!!!\n");
 
     new_sock_info->peer_sockaddr->sin_addr = income_src_ip;
     new_sock_info->peer_sockaddr->sin_port = income_src_port;
@@ -466,7 +488,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
     sendPacket("IPv4", std::move(response_packet));
   }
-
+  // printf("syn err 2\n");
   return;
 }
 
@@ -481,16 +503,20 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     sock_info = *itr;
-    if (sock_info->my_sockaddr->sin_addr == 0 || sock_info->my_sockaddr->sin_addr == income_dst_ip) {
+    if (sock_info->my_sockaddr != NULL
+        && (sock_info->my_sockaddr->sin_port == 0 || sock_info->my_sockaddr->sin_port == income_dst_port)
+        && (sock_info->my_sockaddr->sin_addr == 0 || sock_info->my_sockaddr->sin_addr == income_dst_ip)) {
       if (sock_info->status == Status::SYN_RCVD) {
         break;
       }
     }
   }
   if (itr == sock_table.end()) {
+    // printf("NO ESTAB\n");
     return;
   }
   sock_info->status = Status::ESTAB;
+  printf("ESTAB!!!!!!!!!!!\n");
   sock_info->parent_sock->current_backlog--;
 
   setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
@@ -498,6 +524,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 }
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
+  // printf("packet arrived\n");
   if (isSynAckPacket(&packet)) {
     return handleSynAckPacket(fromModule, &packet);
   } else if (isSynPacket(&packet)) {
