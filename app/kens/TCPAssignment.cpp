@@ -15,17 +15,6 @@
 
 namespace E {
 
-TCPAssignment::TCPAssignment(Host &host)
-    : HostModule("TCP", host), RoutingInfoInterface(host),
-      SystemCallInterface(AF_INET, IPPROTO_TCP, host),
-      TimerModule("TCP", host) {}
-
-TCPAssignment::~TCPAssignment() {}
-
-void TCPAssignment::initialize() {}
-
-void TCPAssignment::finalize() {}
-
 // ------------------enums start------------------
 enum Status {
   CLOSED,
@@ -33,10 +22,6 @@ enum Status {
   SYN_RCVD,
   SYN_SENT,
   ESTAB
-};
-
-enum TimerType {
-  ACCEPT
 };
 // ------------------enums end------------------
 
@@ -48,9 +33,10 @@ struct sock_info {
   struct kens_sockaddr_in* my_sockaddr;
   struct kens_sockaddr_in* peer_sockaddr;
   std::list<sock_info*>* child_sock_list;
+  std::list<sock_info*>* backlog_list;
   enum Status status;
   int backlog;
-  int current_backlog;
+  // int current_backlog;
 };
 
 struct kens_sockaddr_in {
@@ -60,11 +46,10 @@ struct kens_sockaddr_in {
   uint32_t sin_addr;
 };
 
-struct TimerPayload {
+struct AcceptQueueItem {
   UUID syscallUUID;
   int pid;
   SystemCallInterface::SystemCallParameter *param;
-  TimerType timerType;
 };
 // ----------------structs end----------------
 
@@ -73,8 +58,33 @@ const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
 int SEQNUM = 1;
 
 std::list<sock_info*> sock_table;
-std::list<UUID> accept_wait_timers;
+std::list<AcceptQueueItem *> accept_queue;
 using sock_info_itr = typename std::list<struct sock_info*>::iterator;
+using accept_queue_itr = typename std::list<struct AcceptQueueItem*>::iterator;
+
+TCPAssignment::TCPAssignment(Host &host)
+    : HostModule("TCP", host), RoutingInfoInterface(host),
+      SystemCallInterface(AF_INET, IPPROTO_TCP, host),
+      TimerModule("TCP", host) {}
+
+TCPAssignment::~TCPAssignment() {}
+
+void TCPAssignment::initialize() {}
+
+void TCPAssignment::finalize() {
+  if (sock_table.size() > 0) {
+    sock_info_itr sock_info_itr = sock_table.begin();
+    while (sock_info_itr != sock_table.end()) {
+      sock_info_itr = sock_table.erase(sock_info_itr);
+    }
+  }
+  if (accept_queue.size() > 0) {
+    accept_queue_itr accept_queue_itr = accept_queue.begin();
+    while (accept_queue_itr != accept_queue.end()) {
+      accept_queue_itr = accept_queue.erase(accept_queue_itr);
+    }
+  }
+}
 
 sock_info_itr find_sock_info(int pid, int fd) {
   sock_info_itr itr;
@@ -85,58 +95,52 @@ sock_info_itr find_sock_info(int pid, int fd) {
 }
 
 void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
-                                  SystemCallInterface::SystemCallParameter *param) {
+                                  SystemCallParameter *param) {
   int fd = std::get<int>(param->params[0]);
   struct sockaddr_in* param_addr = (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param->params[1]));
   socklen_t* addrlen = static_cast<socklen_t *>(std::get<void *>(param->params[2]));
 
-  struct sock_info *sock_info, *sock_info_in_backlog = NULL;
+  struct sock_info *sock_info,*parent_sock_info;
   sock_info_itr itr;
-  bool flag = false;
+  struct AcceptQueueItem *accept_queue_item;
 
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
-    sock_info = *itr;
-    // only for proper pid and fd
-    if (sock_info->pid == pid && sock_info->parent_sock != NULL && sock_info->parent_sock->fd == fd) {
-      if (sock_info_in_backlog == NULL && sock_info->status == Status::ESTAB && sock_info->fd < 0) {
-        sock_info_in_backlog = *itr;
-        flag = true;
-      } else if (sock_info->status == Status::SYN_RCVD) {
-        flag = true;
+    parent_sock_info = *itr;
+    if (parent_sock_info->pid == pid && parent_sock_info->fd == fd) {
+      break;
+    }
+  }
+
+  if (itr == sock_table.end()) {
+    free(param);
+    return returnSystemCall(syscallUUID, -1);
+  }
+
+  if (parent_sock_info->child_sock_list->size() > 0) {
+    for (itr = parent_sock_info->child_sock_list->begin(); itr != parent_sock_info->child_sock_list->end(); ++itr) {
+      sock_info = *itr;
+      if (sock_info->status == Status::ESTAB && sock_info->fd < 0) {
+        sock_info->fd = createFileDescriptor(sock_info->pid);
+
+        param_addr->sin_addr.s_addr = sock_info->peer_sockaddr->sin_addr;
+        param_addr->sin_family = sock_info->peer_sockaddr->sin_family;
+        param_addr->sin_port = sock_info->peer_sockaddr->sin_port;
+
+        // TODO: set addrlen
+
+        free(param);
+        return returnSystemCall(syscallUUID, sock_info->fd);
       }
     }
   }
 
-  // No socket is established or syn recieved
-  if (!flag) {
-    free(param);
-    returnSystemCall(syscallUUID, -1);
-    return;
-  }
+  accept_queue_item = (struct AcceptQueueItem *) malloc(sizeof(struct AcceptQueueItem));
+  accept_queue_item->syscallUUID = syscallUUID;
+  accept_queue_item->pid = pid;
+  accept_queue_item->param = param;
 
-  // Socket that is syn recieved exist
-  if (sock_info_in_backlog == NULL) {
-    struct TimerPayload *payload = (struct TimerPayload*) malloc(sizeof(struct TimerPayload));
-    payload->syscallUUID = syscallUUID;
-    payload->pid = pid;
-    payload->param = param;
-    payload->timerType = TimerType::ACCEPT;
-
-    UUID timerId = addTimer(payload, 2000);   // 2ms
-    accept_wait_timers.push_back(timerId);
-    return;
-  }
-
-  sock_info_in_backlog->fd = createFileDescriptor(sock_info_in_backlog->pid);
-
-  param_addr->sin_addr.s_addr = sock_info_in_backlog->peer_sockaddr->sin_addr;
-  param_addr->sin_family = sock_info_in_backlog->peer_sockaddr->sin_family;
-  param_addr->sin_port = sock_info_in_backlog->peer_sockaddr->sin_port;
-
-  // TODO: set addrlen
-
-  free(param);
-  returnSystemCall(syscallUUID, sock_info_in_backlog->fd);
+  accept_queue.push_back(accept_queue_item);
+  return;
 }
 
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
@@ -161,6 +165,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     sock_info->status = Status::CLOSED;
     sock_info->parent_sock = NULL;
     sock_info->child_sock_list = new std::list<struct sock_info*>();
+    sock_info->backlog_list = new std::list<struct sock_info*>();
     sock_table.push_back(sock_info);
 
     returnSystemCall(syscallUUID, fd);
@@ -254,7 +259,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       sock_info->backlog = backlog;
     }
     sock_info->status = Status::LISTEN;
-    sock_info->current_backlog = 0;
 
     returnSystemCall(syscallUUID, 0);
     break;
@@ -424,8 +428,8 @@ bool isAckPacket(Packet *packet) {
 
 void cloneSockInfo(struct sock_info* dst, struct sock_info* src) {
   dst->backlog = 0;
-  dst->current_backlog = 0;
-  dst->child_sock_list = new std::list<struct sock_info*>();
+  dst->backlog_list = NULL;
+  dst->child_sock_list = NULL;
   dst->fd = -1;
   memcpy(dst->my_sockaddr, src->my_sockaddr, sizeof(struct kens_sockaddr_in));
   dst->parent_sock = src;
@@ -444,7 +448,6 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   // TODO: should be implemented
   setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
   sendPacket("IPv4", std::move(response_packet));
-  // return;
 }
 
 void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
@@ -479,7 +482,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
     setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
     
     // backlog count check
-    if (sock_info->backlog <= sock_info->current_backlog) {
+    if (sock_info->backlog <= sock_info->backlog_list->size()) {
       // 무시 혹은 RST flag set
       // TODO: (maybe) clone한 패킷 처리?
       return;
@@ -498,7 +501,6 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
       return;
     }
 
-    sock_info->current_backlog++;
     cloneSockInfo(new_sock_info, sock_info);
 
     new_sock_info->peer_sockaddr->sin_addr = income_src_ip;
@@ -509,7 +511,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
     new_sock_info->peer_sockaddr->sin_family = AF_INET;
 
     sock_table.push_back(new_sock_info);
-    sock_info->child_sock_list->push_back(new_sock_info);
+    sock_info->backlog_list->push_back(new_sock_info);
 
     sendPacket("IPv4", std::move(response_packet));
   }
@@ -521,27 +523,54 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
   Packet packet_to_client = packet->clone();
-  struct sock_info* sock_info;
+  struct sock_info *sock_info, *parent_sock_info;
+  struct AcceptQueueItem *accept_queue_item;
   sock_info_itr itr;
+  accept_queue_itr accept_queue_itr;
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
-    sock_info = *itr;
-    if (sock_info->my_sockaddr->sin_addr == 0 || sock_info->my_sockaddr->sin_addr == income_dst_ip) {
-      if (sock_info->status == Status::SYN_RCVD) {
-        break;
-      }
+    parent_sock_info = *itr;
+    if (parent_sock_info->my_sockaddr != NULL
+        && parent_sock_info->my_sockaddr->sin_port == income_dst_port
+        && (parent_sock_info->my_sockaddr->sin_addr == 0 || parent_sock_info->my_sockaddr->sin_addr == income_dst_ip))
+    {
+      break;
     }
   }
+
   if (itr == sock_table.end()) {
     return;
   }
-  sock_info->status = Status::ESTAB;
-  sock_info->parent_sock->current_backlog--;
 
-  setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
-  sendPacket("IPv4", std::move(packet_to_client));
+  if (parent_sock_info->status == Status::LISTEN) {
+    if (parent_sock_info->backlog_list->size() == 0) {
+      return;
+    }
+
+    itr = parent_sock_info->backlog_list->begin();
+    parent_sock_info->backlog_list->erase(itr);
+
+    sock_info = *itr;
+    sock_info->status = Status::ESTAB;
+    parent_sock_info->child_sock_list->push_front(sock_info);
+
+    if (accept_queue.size() > 0) {
+      for (accept_queue_itr = accept_queue.begin(); accept_queue_itr != accept_queue.end(); ++itr) {
+        accept_queue_item = *accept_queue_itr;
+        if (parent_sock_info->pid == accept_queue_item->pid && parent_sock_info->fd == std::get<int>(accept_queue_item->param->params[0])) {
+          accept_queue.erase(accept_queue_itr);
+          acceptHandler(accept_queue_item->syscallUUID, accept_queue_item->pid, accept_queue_item->param);
+          free(accept_queue_item);
+          return;
+        }
+      }
+    }
+
+    setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
+    sendPacket("IPv4", std::move(packet_to_client));
+  }
 }
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
@@ -555,20 +584,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
-  TimerPayload *timerPayload = std::any_cast<TimerPayload*>(payload);
-  switch (timerPayload->timerType)
-  {
-  case TimerType::ACCEPT: {
-    // TODO: 버그 가능성 없는지 확인. 단순히 리스트 앞을 제거해서 A 타이머가 작동하고 B 타이머를 삭제할 수가 있음.
-    UUID waiterId = accept_wait_timers.front();
-    cancelTimer(waiterId);
-    accept_wait_timers.erase(accept_wait_timers.begin());
-    acceptHandler(timerPayload->syscallUUID, timerPayload->pid, timerPayload->param);
-    free(timerPayload);
-  }
-  default:
-    break;
-  }
 }
 
 } // namespace E
