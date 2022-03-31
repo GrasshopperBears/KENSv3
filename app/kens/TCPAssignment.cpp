@@ -36,7 +36,6 @@ struct sock_info {
   std::list<sock_info*>* backlog_list;
   enum Status status;
   int backlog;
-  // int current_backlog;
 };
 
 struct kens_sockaddr_in {
@@ -100,7 +99,7 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
   struct sockaddr_in* param_addr = (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param->params[1]));
   socklen_t* addrlen = static_cast<socklen_t *>(std::get<void *>(param->params[2]));
 
-  struct sock_info *sock_info,*parent_sock_info;
+  struct sock_info *sock_info, *parent_sock_info;
   sock_info_itr itr;
   struct AcceptQueueItem *accept_queue_item;
 
@@ -126,7 +125,7 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
         param_addr->sin_family = sock_info->peer_sockaddr->sin_family;
         param_addr->sin_port = sock_info->peer_sockaddr->sin_port;
 
-        // TODO: set addrlen
+        *addrlen = sizeof(struct sockaddr_in);
 
         free(param);
         return returnSystemCall(syscallUUID, sock_info->fd);
@@ -505,9 +504,8 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
     new_sock_info->peer_sockaddr->sin_addr = income_src_ip;
     new_sock_info->peer_sockaddr->sin_port = income_src_port;
-
-    // FIXTME: 아래 2개 수정할 필요 있음
-    new_sock_info->peer_sockaddr->sin_len = new_sock_info->my_sockaddr->sin_len;
+    new_sock_info->peer_sockaddr->sin_len = sizeof(struct sockaddr_in);
+    // TODO: family도 packet 통해서 정보를 얻어야 하나?
     new_sock_info->peer_sockaddr->sin_family = AF_INET;
 
     sock_table.push_back(new_sock_info);
@@ -549,12 +547,20 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       return;
     }
 
-    itr = parent_sock_info->backlog_list->begin();
+    for (itr = parent_sock_info->backlog_list->begin(); itr != parent_sock_info->backlog_list->end(); ++itr) {
+      sock_info = *itr;
+      if (sock_info->peer_sockaddr->sin_addr == income_src_ip && sock_info->peer_sockaddr->sin_port == income_src_port) {
+        break;
+      }
+    }
+    if (itr == parent_sock_info->backlog_list->end()) {
+      return;
+    }
+    
     parent_sock_info->backlog_list->erase(itr);
 
-    sock_info = *itr;
     sock_info->status = Status::ESTAB;
-    parent_sock_info->child_sock_list->push_front(sock_info);
+    parent_sock_info->child_sock_list->push_back(sock_info);
 
     if (accept_queue.size() > 0) {
       for (accept_queue_itr = accept_queue.begin(); accept_queue_itr != accept_queue.end(); ++itr) {
