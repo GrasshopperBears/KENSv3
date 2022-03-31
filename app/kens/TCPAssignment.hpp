@@ -40,6 +40,7 @@ protected:
   virtual void handleSynPacket(std::string fromModule, Packet *packet) final;
   virtual void handleAckPacket(std::string fromModule, Packet *packet) final;
   virtual void packetArrived(std::string fromModule, Packet &&packet) final;
+  virtual void setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) final;
 };
 
 class TCPAssignmentProvider {

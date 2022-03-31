@@ -70,6 +70,7 @@ struct TimerPayload {
 
 const int PACKET_OFFSET = 14;
 const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
+int SEQNUM = 1;
 
 std::list<sock_info*> sock_table;
 std::list<UUID> accept_wait_timers;
@@ -198,12 +199,39 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     //                     std::get<void *>(param.params[1]),
     //                     std::get<int>(param.params[2]));
     break;
-  case CONNECT:
+  case CONNECT: {
     // this->syscall_connect(
     //     syscallUUID, pid, std::get<int>(param.params[0]),
     //     static_cast<struct sockaddr *>(std::get<void *>(param.params[1])),
     //     (socklen_t)std::get<int>(param.params[2]));
+    int fd = std::get<int>(param.params[0]);
+    sock_info_itr sock_info_itr = find_sock_info(pid, fd);
+    if (sock_info_itr == sock_table.end()) {
+      returnSystemCall(syscallUUID, -1);
+      break;
+    }
+    struct sock_info* sock_info = *sock_info_itr;
+    struct sockaddr_in* param_addr =
+      (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param.params[1]));
+    ipv4_t dstIp = {
+      (u_int8_t) (param_addr->sin_addr.s_addr >> 24),
+      (u_int8_t) (param_addr->sin_addr.s_addr >> 16),
+      (u_int8_t) (param_addr->sin_addr.s_addr >> 8),
+      (u_int8_t) (param_addr->sin_addr.s_addr)
+    };
+    uint16_t port = (uint16_t) getRoutingTable(dstIp);
+    ipv4_t _ip = getIPAddr(port).value();
+    u_int32_t myIp = (_ip[0] << 24) + (_ip[1] << 16) + (_ip[2] << 8) + (_ip[3]);
+
+    Packet synPkt (54);
+    setPacketSrcDst(&synPkt, &myIp, &port, &param_addr->sin_addr.s_addr, &param_addr->sin_port);
+
+    synPkt.writeData(SEGMENT_OFFSET + 4, &SEQNUM, 4);
+    sendPacket("IPv4", std::move(synPkt));
+    sock_info->status = SYN_SENT;
+
     break;
+  }
   case LISTEN: {
     // this->syscall_listen(syscallUUID, pid, std::get<int>(param.params[0]),
     //                      std::get<int>(param.params[1]));
@@ -332,12 +360,31 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     break;
   }
-  case GETPEERNAME:
+  case GETPEERNAME: {
     // this->syscall_getpeername(
     //     syscallUUID, pid, std::get<int>(param.params[0]),
     //     static_cast<struct sockaddr *>(std::get<void *>(param.params[1])),
     //     static_cast<socklen_t *>(std::get<void *>(param.params[2])));
+    int fd = std::get<int>(param.params[0]);
+    struct sockaddr_in* addr = (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param.params[1]));
+    socklen_t* addrlen = static_cast<socklen_t *>(std::get<void *>(param.params[2]));
+    sock_info_itr found_item_itr = find_sock_info(pid, fd);
+    if (found_item_itr == sock_table.end()) {
+      returnSystemCall(syscallUUID, -1);
+      break;
+    }
+    struct kens_sockaddr_in* peerAddr_in = (*found_item_itr)->peer_sockaddr;
+
+    addr->sin_addr.s_addr = peerAddr_in->sin_addr;
+    addr->sin_family = peerAddr_in->sin_family;
+    addr->sin_port = peerAddr_in->sin_port;
+    memset(addr->sin_zero, 0, sizeof(addr->sin_zero));
+    
+    *addrlen = peerAddr_in->sin_len;
+    returnSystemCall(syscallUUID, 0);
+
     break;
+  }
   default:
     assert(0);
   }
@@ -350,7 +397,7 @@ void getPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint3
   packet->readData(SEGMENT_OFFSET + 2, dst_port, 2);
 }
 
-void setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {
+void TCPAssignment::setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {
   packet->writeData(PACKET_OFFSET + 12, src_ip, 4);
   packet->writeData(PACKET_OFFSET + 16, dst_ip, 4);
   packet->writeData(SEGMENT_OFFSET, src_port, 2);
