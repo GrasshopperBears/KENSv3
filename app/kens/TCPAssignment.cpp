@@ -71,6 +71,7 @@ TCPAssignment::~TCPAssignment() {}
 void TCPAssignment::initialize() {}
 
 void TCPAssignment::finalize() {
+  // cleanup global list
   if (sock_table.size() > 0) {
     sock_info_itr sock_info_itr = sock_table.begin();
     while (sock_info_itr != sock_table.end()) {
@@ -103,17 +104,13 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
   sock_info_itr itr;
   struct AcceptQueueItem *accept_queue_item;
 
-  for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
-    parent_sock_info = *itr;
-    if (parent_sock_info->pid == pid && parent_sock_info->fd == fd) {
-      break;
-    }
-  }
-
+  // First, find appropriate parent socket
+  itr = find_sock_info(pid, fd);
   if (itr == sock_table.end()) {
     free(param);
     return returnSystemCall(syscallUUID, -1);
   }
+  parent_sock_info = *itr;
 
   if (parent_sock_info->child_sock_list->size() > 0) {
     for (itr = parent_sock_info->child_sock_list->begin(); itr != parent_sock_info->child_sock_list->end(); ++itr) {
