@@ -57,6 +57,9 @@ const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
 int SEQNUM = 1;
 
 std::list<sock_info*> sock_table;
+
+// accept_queue is a queue for blocking accept.
+// pushed by acceptHandler and poped by handleAckPacket.
 std::list<AcceptQueueItem *> accept_queue;
 using sock_info_itr = typename std::list<struct sock_info*>::iterator;
 using accept_queue_itr = typename std::list<struct AcceptQueueItem*>::iterator;
@@ -115,6 +118,7 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
   if (parent_sock_info->child_sock_list->size() > 0) {
     for (itr = parent_sock_info->child_sock_list->begin(); itr != parent_sock_info->child_sock_list->end(); ++itr) {
       sock_info = *itr;
+      // Socket that established but not returned yet;
       if (sock_info->status == Status::ESTAB && sock_info->fd < 0) {
         sock_info->fd = createFileDescriptor(sock_info->pid);
 
@@ -130,6 +134,8 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
     }
   }
 
+  // When this code is executed, we have to wait util socket to be established
+  // or next packet comes from client
   accept_queue_item = (struct AcceptQueueItem *) malloc(sizeof(struct AcceptQueueItem));
   accept_queue_item->syscallUUID = syscallUUID;
   accept_queue_item->pid = pid;
@@ -525,34 +531,30 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
+  // First find parent socket by income_dst_ip and income_dst_port
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     parent_sock_info = *itr;
     if (parent_sock_info->my_sockaddr != NULL
-        && parent_sock_info->my_sockaddr->sin_port == income_dst_port
-        && (parent_sock_info->my_sockaddr->sin_addr == 0 || parent_sock_info->my_sockaddr->sin_addr == income_dst_ip))
+        && (parent_sock_info->my_sockaddr->sin_addr == 0 || parent_sock_info->my_sockaddr->sin_addr == income_dst_ip)
+        && parent_sock_info->my_sockaddr->sin_port == income_dst_port)
     {
       break;
     }
   }
 
-  if (itr == sock_table.end()) {
-    return;
-  }
+  if (itr == sock_table.end()) { return; }
 
   if (parent_sock_info->status == Status::LISTEN) {
-    if (parent_sock_info->backlog_list->size() == 0) {
-      return;
-    }
+    if (parent_sock_info->backlog_list->size() == 0) { return; }
 
+    // Filter by client IP and port
     for (itr = parent_sock_info->backlog_list->begin(); itr != parent_sock_info->backlog_list->end(); ++itr) {
       sock_info = *itr;
       if (sock_info->peer_sockaddr->sin_addr == income_src_ip && sock_info->peer_sockaddr->sin_port == income_src_port) {
         break;
       }
     }
-    if (itr == parent_sock_info->backlog_list->end()) {
-      return;
-    }
+    if (itr == parent_sock_info->backlog_list->end()) { return; }
     
     parent_sock_info->backlog_list->erase(itr);
 
@@ -570,7 +572,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
         }
       }
     }
-
     setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
     sendPacket("IPv4", std::move(packet_to_client));
   }
