@@ -221,19 +221,18 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     struct sockaddr_in* param_addr =
       (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param.params[1]));
     ipv4_t dstIp = {
-      (u_int8_t) (param_addr->sin_addr.s_addr >> 24),
-      (u_int8_t) (param_addr->sin_addr.s_addr >> 16),
+      (u_int8_t) (param_addr->sin_addr.s_addr),
       (u_int8_t) (param_addr->sin_addr.s_addr >> 8),
-      (u_int8_t) (param_addr->sin_addr.s_addr)
+      (u_int8_t) (param_addr->sin_addr.s_addr >> 16),
+      (u_int8_t) (param_addr->sin_addr.s_addr >> 24)
     };
     uint16_t port = (uint16_t) getRoutingTable(dstIp);
     ipv4_t _ip = getIPAddr(port).value();
-    u_int32_t myIp = (_ip[0] << 24) + (_ip[1] << 16) + (_ip[2] << 8) + (_ip[3]);
-
+    u_int32_t myIp = (_ip[0]) + (_ip[1] << 8) + (_ip[2] << 16) + (_ip[3] << 24);
     Packet synPkt (54);
     setPacketSrcDst(&synPkt, &myIp, &port, &param_addr->sin_addr.s_addr, &param_addr->sin_port);
 
-    synPkt.writeData(SEGMENT_OFFSET + 4, &SEQNUM, 4);
+    // synPkt.writeData(SEGMENT_OFFSET + 4, &SEQNUM, 4);
     sendPacket("IPv4", std::move(synPkt));
     sock_info->status = SYN_SENT;
 
