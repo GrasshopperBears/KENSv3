@@ -230,7 +230,15 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     };
 
     // TODO: 포트 및 routingTable 관리
-    uint16_t port = htons(22222);
+    uint16_t port;
+    if (sock_info->my_sockaddr != NULL && sock_info->my_sockaddr->sin_port > 0) {
+      port = sock_info->my_sockaddr->sin_port;
+    } else {
+      // FIXME: random 포트 부여 및 관리
+      port = htons(45924);
+    }
+
+    // printf("%d\n", (uint16_t) getRoutingTable(dstIp));
     ipv4_t _ip = getIPAddr((uint16_t) getRoutingTable(dstIp)).value();
     
     setRoutingTable(_ip, 0, ntohs(port));
