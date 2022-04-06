@@ -54,7 +54,7 @@ struct AcceptQueueItem {
 
 const int PACKET_OFFSET = 14;
 const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
-int SEQNUM = 1;
+int SEQNUM = 100;
 
 std::list<sock_info*> sock_table;
 
@@ -211,6 +211,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     //     syscallUUID, pid, std::get<int>(param.params[0]),
     //     static_cast<struct sockaddr *>(std::get<void *>(param.params[1])),
     //     (socklen_t)std::get<int>(param.params[2]));
+    printf("CONNECT\n");
     int fd = std::get<int>(param.params[0]);
     sock_info_itr sock_info_itr = find_sock_info(pid, fd);
     if (sock_info_itr == sock_table.end()) {
@@ -226,13 +227,22 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       (u_int8_t) (param_addr->sin_addr.s_addr >> 16),
       (u_int8_t) (param_addr->sin_addr.s_addr >> 24)
     };
+    printf("dstIp: %x\n", param_addr->sin_addr.s_addr);
     uint16_t port = (uint16_t) getRoutingTable(dstIp);
     ipv4_t _ip = getIPAddr(port).value();
     u_int32_t myIp = (_ip[0]) + (_ip[1] << 8) + (_ip[2] << 16) + (_ip[3] << 24);
+    printf("myIp: %x\n", myIp);
     Packet synPkt (54);
     setPacketSrcDst(&synPkt, &myIp, &port, &param_addr->sin_addr.s_addr, &param_addr->sin_port);
 
-    // synPkt.writeData(SEGMENT_OFFSET + 4, &SEQNUM, 4);
+    struct kens_sockaddr_in* addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
+    addr->sin_len = sizeof(addr->sin_addr);
+    addr->sin_family = AF_INET;
+    addr->sin_port = port;
+    addr->sin_addr = myIp;
+    sock_info->my_sockaddr = addr;
+
+    synPkt.writeData(SEGMENT_OFFSET + 4, &SEQNUM, 4);
     sendPacket("IPv4", std::move(synPkt));
     sock_info->status = SYN_SENT;
 
@@ -577,6 +587,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 }
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
+  printf("PacketArrived\n");
   if (isSynAckPacket(&packet)) {
     return handleSynAckPacket(fromModule, &packet);
   } else if (isSynPacket(&packet)) {
@@ -587,6 +598,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
+  printf("TimerCallback\n");
 }
 
 } // namespace E
