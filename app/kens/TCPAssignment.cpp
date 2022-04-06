@@ -98,6 +98,22 @@ sock_info_itr find_sock_info(int pid, int fd) {
   return itr;
 }
 
+void set_packet_checksum(Packet *packet, uint32_t src_ip, uint32_t dst_ip) {
+  uint64_t packet_length = packet->getSize() - SEGMENT_OFFSET;
+  uint16_t zero = 0;
+  int checksum_pos = 16, checksum_size = 2;
+  char buffer[packet_length];
+
+  // Init checksum field
+  packet->writeData(SEGMENT_OFFSET + checksum_pos, &zero, checksum_size);
+
+  packet->readData(SEGMENT_OFFSET, buffer, packet_length);
+  uint16_t checksum = NetworkUtil::tcp_sum(src_ip, dst_ip, (uint8_t *)buffer, packet_length);
+  checksum = ~checksum;
+  checksum = htons(checksum);
+  packet->writeData(SEGMENT_OFFSET + checksum_pos, &checksum, checksum_size);
+}
+
 void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
                                   SystemCallParameter *param) {
   int fd = std::get<int>(param->params[0]);
@@ -272,13 +288,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     synPkt.writeData(SEGMENT_OFFSET + 13, &flag, 1);
     synPkt.writeData(SEGMENT_OFFSET + 14, &window_size, 2);
 
-    // checksum
-    char buffer[20];
-    synPkt.readData(SEGMENT_OFFSET, buffer, 20);
-    uint16_t checksum = NetworkUtil::tcp_sum(myIp, param_addr->sin_addr.s_addr, (uint8_t *)buffer, 20);
-    checksum = ~checksum;
-    checksum = htons(checksum);
-    synPkt.writeData(SEGMENT_OFFSET + 16, &checksum, 2);
+    set_packet_checksum(&synPkt, myIp, param_addr->sin_addr.s_addr);
 
     sendPacket("IPv4", std::move(synPkt));
     sock_info->status = Status::SYN_SENT;
@@ -529,16 +539,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     response_packet.writeData(SEGMENT_OFFSET+4, &src_ack, 4);
     response_packet.writeData(SEGMENT_OFFSET+8, &src_seq, 4);
 
-
-    char buffer[20];
-    uint16_t zero = 0;
-    response_packet.writeData(SEGMENT_OFFSET + 16, &zero, 2);
-    response_packet.readData(SEGMENT_OFFSET, buffer, 20);
-    uint16_t checksum = NetworkUtil::tcp_sum(income_dst_ip, income_src_ip, (uint8_t *)buffer, 20);
-    checksum = ~checksum;
-    checksum = htons(checksum);
-    response_packet.writeData(SEGMENT_OFFSET + 16, &checksum, 2);
-
+    set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
 
     sendPacket("IPv4", std::move(response_packet));
     returnSystemCall(sock_info->syscallUUID, 0);
