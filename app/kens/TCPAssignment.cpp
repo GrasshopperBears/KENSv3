@@ -114,6 +114,10 @@ void set_packet_checksum(Packet *packet, uint32_t src_ip, uint32_t dst_ip) {
   packet->writeData(SEGMENT_OFFSET + checksum_pos, &checksum, checksum_size);
 }
 
+void set_packet_flags(Packet *packet, uint8_t flags) {
+  packet->writeData(SEGMENT_OFFSET + 13, &flags, 1);
+}
+
 void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
                                   SystemCallParameter *param) {
   int fd = std::get<int>(param->params[0]);
@@ -275,12 +279,11 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     sock_info->syscallUUID = syscallUUID;
 
     uint8_t tcp_len = 5 << 4;
-    uint flag = 2;
     uint16_t window_size = htons(1);
 
     synPkt.writeData(SEGMENT_OFFSET + 12, &tcp_len, 1);
     synPkt.writeData(SEGMENT_OFFSET + 4, &SEQNUM, 4);
-    synPkt.writeData(SEGMENT_OFFSET + 13, &flag, 1);
+    set_packet_flags(&synPkt, TH_SYN);
     synPkt.writeData(SEGMENT_OFFSET + 14, &window_size, 2);
 
     set_packet_checksum(&synPkt, myIp, param_addr->sin_addr.s_addr);
@@ -522,8 +525,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->status = Status::ESTAB;
     // TODO: ACK and SYN flag, seq number 처리
 
-    uint flag = 16;
-    response_packet.writeData(SEGMENT_OFFSET + 13, &flag, 1);
+    set_packet_flags(&response_packet, TH_ACK);
 
     uint32_t src_seq, src_ack;
     response_packet.readData(SEGMENT_OFFSET+4, &src_seq, 4);
