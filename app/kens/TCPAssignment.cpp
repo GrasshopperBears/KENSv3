@@ -118,6 +118,17 @@ void set_packet_flags(Packet *packet, uint8_t flags) {
   packet->writeData(SEGMENT_OFFSET + 13, &flags, 1);
 }
 
+struct kens_sockaddr_in* get_new_sockaddr_in(uint32_t ip, uint16_t port) {
+  struct kens_sockaddr_in* addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
+  if (addr == NULL) return NULL;
+
+  addr->sin_len = sizeof(addr->sin_addr);
+  addr->sin_family = AF_INET;
+  addr->sin_port = port;
+  addr->sin_addr = ip;
+  return addr;
+}
+
 void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
                                   SystemCallParameter *param) {
   int fd = std::get<int>(param->params[0]);
@@ -261,20 +272,9 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     Packet synPkt (54);
     setPacketSrcDst(&synPkt, &myIp, &port, &param_addr->sin_addr.s_addr, &param_addr->sin_port);
     
-    struct kens_sockaddr_in* my_addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
-    my_addr->sin_len = sizeof(my_addr->sin_addr);
-    my_addr->sin_family = AF_INET;
-    my_addr->sin_port = port;
-    my_addr->sin_addr = myIp;
-    sock_info->my_sockaddr = my_addr;
-
-    struct kens_sockaddr_in* peer_addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
-    peer_addr->sin_len = sizeof(peer_addr->sin_addr);
-    peer_addr->sin_family = AF_INET;
-    peer_addr->sin_port = param_addr->sin_port;
-    peer_addr->sin_addr = param_addr->sin_addr.s_addr;
-    sock_info->peer_sockaddr = peer_addr;
-
+    // TODO: NULL exception
+    sock_info->my_sockaddr = get_new_sockaddr_in(myIp, port);
+    sock_info->peer_sockaddr = get_new_sockaddr_in(param_addr->sin_addr.s_addr, param_addr->sin_port);
     sock_info->syscallUUID = syscallUUID;
 
     uint8_t tcp_len = 5 << 4;
@@ -377,18 +377,13 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       break;
     }
 
-    struct kens_sockaddr_in* addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
     if (sock_info == NULL) {
       printf("Error: can't allocate memory(sockaddr_in)\n");
       returnSystemCall(syscallUUID, -1);
       break;
     }
 
-    addr->sin_len = sizeof(param_addr->sin_addr);
-    addr->sin_family = param_addr->sin_family;
-    addr->sin_port = param_addr->sin_port;
-    addr->sin_addr = param_addr->sin_addr.s_addr;
-    sock_info->my_sockaddr = addr;
+    sock_info->my_sockaddr = get_new_sockaddr_in(param_addr->sin_addr.s_addr, param_addr->sin_port);
 
     returnSystemCall(syscallUUID, 0);
     break;
