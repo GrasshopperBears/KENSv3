@@ -118,6 +118,16 @@ void set_packet_flags(Packet *packet, uint8_t flags) {
   packet->writeData(SEGMENT_OFFSET + 13, &flags, 1);
 }
 
+void set_seq_ack_number(Packet *req_pkt, Packet *res_pkt) {
+  uint32_t req_seq, req_ack, new_ack;
+
+  req_pkt->readData(SEGMENT_OFFSET+4, &req_seq, 4);
+  req_pkt->readData(SEGMENT_OFFSET+8, &req_ack, 4);
+  new_ack = htonl(ntohl(req_seq)+1);
+  res_pkt->writeData(SEGMENT_OFFSET+4, &req_ack, 4);
+  res_pkt->writeData(SEGMENT_OFFSET+8, &new_ack, 4);
+}
+
 struct kens_sockaddr_in* get_new_sockaddr_in(uint32_t ip, uint16_t port) {
   struct kens_sockaddr_in* addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
   if (addr == NULL) return NULL;
@@ -520,16 +530,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     // TODO: ACK and SYN flag, seq number 처리
 
     set_packet_flags(&response_packet, TH_ACK);
-
-    uint32_t src_seq, src_ack;
-    response_packet.readData(SEGMENT_OFFSET+4, &src_seq, 4);
-    response_packet.readData(SEGMENT_OFFSET+8, &src_ack, 4);
-
-    src_seq = htonl(ntohl(src_seq)+1);
-
-    response_packet.writeData(SEGMENT_OFFSET+4, &src_ack, 4);
-    response_packet.writeData(SEGMENT_OFFSET+8, &src_seq, 4);
-
+    set_seq_ack_number(packet, &response_packet);
     set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
 
     sendPacket("IPv4", std::move(response_packet));
