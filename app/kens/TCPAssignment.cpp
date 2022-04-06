@@ -257,7 +257,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     // printf("%d\n", (uint16_t) getRoutingTable(dstIp));
     ipv4_t _ip = getIPAddr((uint16_t) getRoutingTable(dstIp)).value();
     
-    setRoutingTable(_ip, 0, ntohs(port));
+    // setRoutingTable(_ip, 0, ntohs(port));
 
     u_int32_t myIp = (_ip[0]) + (_ip[1] << 8) + (_ip[2] << 16) + (_ip[3] << 24);
     Packet synPkt (54);
