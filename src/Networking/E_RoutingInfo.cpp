@@ -78,10 +78,7 @@ std::optional<mac_t> RoutingInfo::getARPTable(const ipv4_t &ipv4) {
 int RoutingInfo::getRoutingTable(const ipv4_t &ip_addr) {
   int current_prefix = 0;
   int selected_port = 0;
-  printf("ip_addr: %x.%x.%x.%x\n", ip_addr[0], ip_addr[1], ip_addr[2], ip_addr[3]);
   for (auto entry : route_vector) {
-    printf("entry.port: %x\n", entry.port);
-    printf("entry.ip: %x.%x.%x.%x\n", entry.ip_mask[0], entry.ip_mask[1], entry.ip_mask[2], entry.ip_mask[3]);
     bool matches = true;
     for (int k = 0; k < (entry.prefix / 8); k++) {
       if (ip_addr[k] != entry.ip_mask[k])
