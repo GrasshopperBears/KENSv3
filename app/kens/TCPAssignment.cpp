@@ -238,12 +238,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     struct sock_info* sock_info = *sock_info_itr;
     struct sockaddr_in* param_addr =
       (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param.params[1]));
-    ipv4_t dstIp = {
-      (u_int8_t) (param_addr->sin_addr.s_addr),
-      (u_int8_t) (param_addr->sin_addr.s_addr >> 8),
-      (u_int8_t) (param_addr->sin_addr.s_addr >> 16),
-      (u_int8_t) (param_addr->sin_addr.s_addr >> 24)
-    };
+    ipv4_t dstIp = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t) param_addr->sin_addr.s_addr);
 
     // TODO: 포트 및 routingTable 관리
     uint16_t port;
@@ -259,7 +254,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     
     // setRoutingTable(_ip, 0, ntohs(port));
 
-    u_int32_t myIp = (_ip[0]) + (_ip[1] << 8) + (_ip[2] << 16) + (_ip[3] << 24);
+    u_int32_t myIp = NetworkUtil::arrayToUINT64(_ip);
     Packet synPkt (54);
     setPacketSrcDst(&synPkt, &myIp, &port, &param_addr->sin_addr.s_addr, &param_addr->sin_port);
     
