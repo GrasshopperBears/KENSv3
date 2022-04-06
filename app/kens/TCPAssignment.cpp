@@ -253,7 +253,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       port = htons(45924);
     }
 
-    // printf("%d\n", (uint16_t) getRoutingTable(dstIp));
     ipv4_t _ip = getIPAddr((uint16_t) getRoutingTable(dstIp)).value();
     
     // setRoutingTable(_ip, 0, ntohs(port));
@@ -493,6 +492,11 @@ void cloneSockInfo(struct sock_info* dst, struct sock_info* src) {
   dst->status = Status::SYN_RCVD;
 }
 
+bool isTargetSock(struct kens_sockaddr_in *sockaddr_in, uint32_t target_ip, uint16_t target_port, bool strict = false) {
+  return sockaddr_in != NULL
+          && sockaddr_in->sin_port == target_port
+          && ((!strict && sockaddr_in->sin_addr == 0) || sockaddr_in->sin_addr == target_ip);
+}
 
 void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip;
@@ -506,22 +510,17 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
 
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     sock_info = *itr;
-    if (sock_info->my_sockaddr != NULL && sock_info->peer_sockaddr !=NULL
-        && (sock_info->my_sockaddr->sin_addr == income_dst_ip)
-        && sock_info->my_sockaddr->sin_port == income_dst_port
-        && sock_info->peer_sockaddr->sin_addr == income_src_ip
-        && sock_info->peer_sockaddr->sin_port == income_src_port)
+    if (isTargetSock(sock_info->my_sockaddr, income_dst_ip, income_dst_port)
+        && isTargetSock(sock_info->peer_sockaddr, income_src_ip, income_src_port, true))
     {
       break;
     }
   }
   if (itr == sock_table.end()) {
-    // printf("here\n");
     return sendPacket("IPv4", std::move(response_packet));
   }
 
   if (sock_info->status == Status::SYN_SENT) {
-    // printf("syn sent\n");
     sock_info->status = Status::ESTAB;
     // TODO: ACK and SYN flag, seq number 처리
 
@@ -559,10 +558,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     sock_info = *itr;
-    if (sock_info->my_sockaddr != NULL
-        && sock_info->my_sockaddr->sin_port == income_dst_port
-        && (sock_info->my_sockaddr->sin_addr == 0 || sock_info->my_sockaddr->sin_addr == income_dst_ip))
-    {
+    if (isTargetSock(sock_info->my_sockaddr, income_dst_ip, income_dst_port)) {
       break;
     }
   }
@@ -631,9 +627,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   // First find parent socket by income_dst_ip and income_dst_port
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     parent_sock_info = *itr;
-    if (parent_sock_info->my_sockaddr != NULL
-        && (parent_sock_info->my_sockaddr->sin_addr == 0 || parent_sock_info->my_sockaddr->sin_addr == income_dst_ip)
-        && parent_sock_info->my_sockaddr->sin_port == income_dst_port)
+    if (isTargetSock(parent_sock_info->my_sockaddr, income_dst_ip, income_dst_port))
     {
       break;
     }
