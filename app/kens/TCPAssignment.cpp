@@ -230,7 +230,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     };
 
     // TODO: 포트 및 routingTable 관리
-    uint16_t port = htons(9998);
+    uint16_t port = htons(22222);
     ipv4_t _ip = getIPAddr((uint16_t) getRoutingTable(dstIp)).value();
     
     setRoutingTable(_ip, 0, ntohs(port));
@@ -484,7 +484,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   Packet response_packet = packet->clone();
   sock_info_itr itr;
   struct sock_info *sock_info;
-
+  // printf("synack handler\n");
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
   setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
 
@@ -500,10 +500,12 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     }
   }
   if (itr == sock_table.end()) {
+    // printf("here\n");
     return sendPacket("IPv4", std::move(response_packet));
   }
 
   if (sock_info->status == Status::SYN_SENT) {
+    // printf("syn sent\n");
     sock_info->status = Status::ESTAB;
     // TODO: ACK and SYN flag, seq number 처리
 
@@ -535,6 +537,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->syscallUUID = 0;
     return;
   }
+  return sendPacket("IPv4", std::move(response_packet));
 }
 
 void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
@@ -542,6 +545,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
   uint16_t income_src_port, income_dst_port;
   sock_info_itr itr;
   struct sock_info* sock_info;
+  // printf("syn handler\n");
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
@@ -613,6 +617,8 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   struct AcceptQueueItem *accept_queue_item;
   sock_info_itr itr;
   accept_queue_itr accept_queue_itr;
+
+  // printf("ack packet\n");
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
