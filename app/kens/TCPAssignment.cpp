@@ -50,6 +50,12 @@ struct AcceptQueueItem {
   int pid;
   SystemCallInterface::SystemCallParameter *param;
 };
+
+struct ConnectListItem {
+  UUID syscallUUID;
+  int pid;
+  int fd;
+};
 // ----------------structs end----------------
 
 const int PACKET_OFFSET = 14;
@@ -61,8 +67,10 @@ std::list<sock_info*> sock_table;
 // accept_queue is a queue for blocking accept.
 // pushed by acceptHandler and poped by handleAckPacket.
 std::list<AcceptQueueItem *> accept_queue;
+std::list<ConnectListItem *> connect_list;
 using sock_info_itr = typename std::list<struct sock_info*>::iterator;
 using accept_queue_itr = typename std::list<struct AcceptQueueItem*>::iterator;
+using connect_list_itr = typename std::list<struct ConnectListItem*>::iterator;
 
 TCPAssignment::TCPAssignment(Host &host)
     : HostModule("TCP", host), RoutingInfoInterface(host),
@@ -85,6 +93,12 @@ void TCPAssignment::finalize() {
     accept_queue_itr accept_queue_itr = accept_queue.begin();
     while (accept_queue_itr != accept_queue.end()) {
       accept_queue_itr = accept_queue.erase(accept_queue_itr);
+    }
+  }
+  if (connect_list.size() > 0) {
+    connect_list_itr connect_list_itr = connect_list.begin();
+    while (connect_list_itr != connect_list.end()) {
+      connect_list_itr = connect_list.erase(connect_list_itr);
     }
   }
 }
@@ -247,10 +261,11 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     uint8_t tcp_len = 5 << 4;
     uint flag = 2;
-    uint16_t window_size = htons(1);
-
+    uint16_t window_size = htons(0xc800);
+    uint32_t nSEQNUM = htonl(SEQNUM);
+    
+    synPkt.writeData(SEGMENT_OFFSET + 4, &nSEQNUM, 4);
     synPkt.writeData(SEGMENT_OFFSET + 12, &tcp_len, 1);
-    synPkt.writeData(SEGMENT_OFFSET + 4, &SEQNUM, 4);
     synPkt.writeData(SEGMENT_OFFSET + 13, &flag, 1);
     synPkt.writeData(SEGMENT_OFFSET + 14, &window_size, 2);
 
@@ -265,6 +280,11 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     sendPacket("IPv4", std::move(synPkt));
     sock_info->status = SYN_SENT;
 
+    struct ConnectListItem* connect_list_item = (struct ConnectListItem *) malloc(sizeof(struct ConnectListItem));
+    connect_list_item->fd = fd;
+    connect_list_item->pid = pid;
+    connect_list_item->syscallUUID = syscallUUID;
+    connect_list.push_back(connect_list_item);
     break;
   }
   case LISTEN: {
@@ -606,7 +626,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 }
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
-  printf("PacketArrived\n");
+  // printf("PacketArrived\n");
   if (isSynAckPacket(&packet)) {
     return handleSynAckPacket(fromModule, &packet);
   } else if (isSynPacket(&packet)) {
