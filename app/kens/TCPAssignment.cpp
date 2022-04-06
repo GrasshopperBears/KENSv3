@@ -492,17 +492,26 @@ void cloneSockInfo(struct sock_info* dst, struct sock_info* src) {
 
 void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip, ack;
-  uint16_t income_src_port, income_dst_port;
+  uint16_t income_src_port, income_dst_port, zero = 0;
   Packet response_packet = packet->clone();
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+
+  // Set Ack
   response_packet.readData(SEGMENT_OFFSET + 8, &ack, 4);
-  ack = ntohl(ack);
-  ack++;
-  ack = htonl(ack);
+  ack = htonl(ntohl(ack) + 1);
   response_packet.writeData(SEGMENT_OFFSET + 8, &ack, 4);
   uint flag = 16;
   response_packet.writeData(SEGMENT_OFFSET + 13, &flag, 1);
+
+  // refactor checksum
+  response_packet.writeData(SEGMENT_OFFSET + 16, &zero, 2);
+  char buffer[20];
+  response_packet.readData(SEGMENT_OFFSET, buffer, 20);
+  uint16_t checksum = NetworkUtil::tcp_sum(income_dst_ip, income_src_ip, (uint8_t *)buffer, 20);
+  checksum = ~checksum;
+  checksum = htons(checksum);
+  response_packet.writeData(SEGMENT_OFFSET + 16, &checksum, 2);
 
   // TODO: should be implemented
   setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
@@ -511,7 +520,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
 
 void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip, seq, ack;
-  uint16_t income_src_port, income_dst_port;
+  uint16_t income_src_port, income_dst_port, zero = 0;
   uint flag;
   sock_info_itr itr;
   struct sock_info* sock_info;
@@ -572,16 +581,24 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
     sock_table.push_back(new_sock_info);
     sock_info->backlog_list->push_back(new_sock_info);
 
+    // set seq, ack
     response_packet.readData(SEGMENT_OFFSET + 4, &seq, 4);
-    seq = ntohl(seq);
-    seq++;
-    seq = htonl(seq);
+    seq = htonl(ntohl(seq) + 1);
     response_packet.writeData(SEGMENT_OFFSET + 8, &seq, 4);
     ack = htonl(ACKNUM);
     ACKNUM++;
     response_packet.writeData(SEGMENT_OFFSET + 4, &ack, 4);
     flag = 18;
     response_packet.writeData(SEGMENT_OFFSET + 13, &flag, 1);
+
+    // refactor checksum
+    response_packet.writeData(SEGMENT_OFFSET + 16, &zero, 2);
+    char buffer[20];
+    response_packet.readData(SEGMENT_OFFSET, buffer, 20);
+    uint16_t checksum = NetworkUtil::tcp_sum(income_dst_ip, income_src_ip, (uint8_t *)buffer, 20);
+    checksum = ~checksum;
+    checksum = htons(checksum);
+    response_packet.writeData(SEGMENT_OFFSET + 16, &checksum, 2);
 
     sendPacket("IPv4", std::move(response_packet));
   }
