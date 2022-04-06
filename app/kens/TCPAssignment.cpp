@@ -516,6 +516,18 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   // TODO: should be implemented
   setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
   sendPacket("IPv4", std::move(response_packet));
+  connect_list_itr connect_list_itr = connect_list.begin();
+  ConnectListItem* connect_list_item = *connect_list_itr;
+
+  sock_info_itr sock_info_itr = find_sock_info(connect_list_item->pid, connect_list_item->fd);
+  if (sock_info_itr == sock_table.end()) {
+    returnSystemCall(connect_list_item->syscallUUID, -1);
+    return;
+  }
+  struct sock_info* sock_info = *sock_info_itr;
+  sock_info->status = ESTAB;
+
+  returnSystemCall(connect_list_item->syscallUUID, 0);
 }
 
 void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
