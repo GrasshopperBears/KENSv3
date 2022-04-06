@@ -36,6 +36,7 @@ struct sock_info {
   std::list<sock_info*>* backlog_list;
   enum Status status;
   int backlog;
+  UUID syscallUUID;
 };
 
 struct kens_sockaddr_in {
@@ -211,7 +212,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     //     syscallUUID, pid, std::get<int>(param.params[0]),
     //     static_cast<struct sockaddr *>(std::get<void *>(param.params[1])),
     //     (socklen_t)std::get<int>(param.params[2]));
-    printf("CONNECT\n");
+    // printf("CONNECT\n");
     int fd = std::get<int>(param.params[0]);
     sock_info_itr sock_info_itr = find_sock_info(pid, fd);
     if (sock_info_itr == sock_table.end()) {
@@ -238,12 +239,21 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     Packet synPkt (54);
     setPacketSrcDst(&synPkt, &myIp, &port, &param_addr->sin_addr.s_addr, &param_addr->sin_port);
     
-    struct kens_sockaddr_in* addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
-    addr->sin_len = sizeof(addr->sin_addr);
-    addr->sin_family = AF_INET;
-    addr->sin_port = port;
-    addr->sin_addr = myIp;
-    sock_info->my_sockaddr = addr;
+    struct kens_sockaddr_in* my_addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
+    my_addr->sin_len = sizeof(my_addr->sin_addr);
+    my_addr->sin_family = AF_INET;
+    my_addr->sin_port = port;
+    my_addr->sin_addr = myIp;
+    sock_info->my_sockaddr = my_addr;
+
+    struct kens_sockaddr_in* peer_addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
+    peer_addr->sin_len = sizeof(peer_addr->sin_addr);
+    peer_addr->sin_family = AF_INET;
+    peer_addr->sin_port = param_addr->sin_port;
+    peer_addr->sin_addr = param_addr->sin_addr.s_addr;
+    sock_info->peer_sockaddr = peer_addr;
+
+    sock_info->syscallUUID = syscallUUID;
 
     uint8_t tcp_len = 5 << 4;
     uint flag = 2;
@@ -263,7 +273,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     synPkt.writeData(SEGMENT_OFFSET + 16, &checksum, 2);
 
     sendPacket("IPv4", std::move(synPkt));
-    sock_info->status = SYN_SENT;
+    sock_info->status = Status::SYN_SENT;
 
     break;
   }
@@ -472,12 +482,59 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
   Packet response_packet = packet->clone();
+  sock_info_itr itr;
+  struct sock_info *sock_info;
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
-
-  // TODO: should be implemented
   setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
-  sendPacket("IPv4", std::move(response_packet));
+
+  for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
+    sock_info = *itr;
+    if (sock_info->my_sockaddr != NULL && sock_info->peer_sockaddr !=NULL
+        && (sock_info->my_sockaddr->sin_addr == income_dst_ip)
+        && sock_info->my_sockaddr->sin_port == income_dst_port
+        && sock_info->peer_sockaddr->sin_addr == income_src_ip
+        && sock_info->peer_sockaddr->sin_port == income_src_port)
+    {
+      break;
+    }
+  }
+  if (itr == sock_table.end()) {
+    return sendPacket("IPv4", std::move(response_packet));
+  }
+
+  if (sock_info->status == Status::SYN_SENT) {
+    sock_info->status = Status::ESTAB;
+    // TODO: ACK and SYN flag, seq number 처리
+
+    uint flag = 16;
+    response_packet.writeData(SEGMENT_OFFSET + 13, &flag, 1);
+
+    uint32_t src_seq, src_ack;
+    response_packet.readData(SEGMENT_OFFSET+4, &src_seq, 4);
+    response_packet.readData(SEGMENT_OFFSET+8, &src_ack, 4);
+
+    src_seq = htonl(ntohl(src_seq)+1);
+
+    response_packet.writeData(SEGMENT_OFFSET+4, &src_ack, 4);
+    response_packet.writeData(SEGMENT_OFFSET+8, &src_seq, 4);
+
+
+    char buffer[20];
+    uint16_t zero = 0;
+    response_packet.writeData(SEGMENT_OFFSET + 16, &zero, 2);
+    response_packet.readData(SEGMENT_OFFSET, buffer, 20);
+    uint16_t checksum = NetworkUtil::tcp_sum(income_dst_ip, income_src_ip, (uint8_t *)buffer, 20);
+    checksum = ~checksum;
+    checksum = htons(checksum);
+    response_packet.writeData(SEGMENT_OFFSET + 16, &checksum, 2);
+
+
+    sendPacket("IPv4", std::move(response_packet));
+    returnSystemCall(sock_info->syscallUUID, 0);
+    sock_info->syscallUUID = 0;
+    return;
+  }
 }
 
 void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
@@ -606,12 +663,15 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 }
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
-  printf("PacketArrived\n");
+  // printf("PacketArrived\n");
   if (isSynAckPacket(&packet)) {
+    // printf("synack handler\n");
     return handleSynAckPacket(fromModule, &packet);
   } else if (isSynPacket(&packet)) {
+    // printf("syn handler\n");
     return handleSynPacket(fromModule, &packet);
   } else if (isAckPacket(&packet)) {
+    // printf("ack handler\n");
     return handleAckPacket(fromModule, &packet);
   }
 }
