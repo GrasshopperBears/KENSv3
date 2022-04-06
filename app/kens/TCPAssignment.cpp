@@ -227,14 +227,17 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       (u_int8_t) (param_addr->sin_addr.s_addr >> 16),
       (u_int8_t) (param_addr->sin_addr.s_addr >> 24)
     };
-    printf("dstIp: %x\n", param_addr->sin_addr.s_addr);
-    uint16_t port = (uint16_t) getRoutingTable(dstIp);
-    ipv4_t _ip = getIPAddr(port).value();
+
+    // TODO: 포트 및 routingTable 관리
+    uint16_t port = htons(9998);
+    ipv4_t _ip = getIPAddr((uint16_t) getRoutingTable(dstIp)).value();
+    
+    setRoutingTable(_ip, 0, ntohs(port));
+
     u_int32_t myIp = (_ip[0]) + (_ip[1] << 8) + (_ip[2] << 16) + (_ip[3] << 24);
-    printf("myIp: %x\n", myIp);
     Packet synPkt (54);
     setPacketSrcDst(&synPkt, &myIp, &port, &param_addr->sin_addr.s_addr, &param_addr->sin_port);
-
+    
     struct kens_sockaddr_in* addr = (struct kens_sockaddr_in *) malloc(sizeof(struct kens_sockaddr_in));
     addr->sin_len = sizeof(addr->sin_addr);
     addr->sin_family = AF_INET;
@@ -242,7 +245,23 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     addr->sin_addr = myIp;
     sock_info->my_sockaddr = addr;
 
+    uint8_t tcp_len = 5 << 4;
+    uint flag = 2;
+    uint16_t window_size = htons(1);
+
+    synPkt.writeData(SEGMENT_OFFSET + 12, &tcp_len, 1);
     synPkt.writeData(SEGMENT_OFFSET + 4, &SEQNUM, 4);
+    synPkt.writeData(SEGMENT_OFFSET + 13, &flag, 1);
+    synPkt.writeData(SEGMENT_OFFSET + 14, &window_size, 2);
+
+    // checksum
+    char buffer[20];
+    synPkt.readData(SEGMENT_OFFSET, buffer, 20);
+    uint16_t checksum = NetworkUtil::tcp_sum(myIp, param_addr->sin_addr.s_addr, (uint8_t *)buffer, 20);
+    checksum = ~checksum;
+    checksum = htons(checksum);
+    synPkt.writeData(SEGMENT_OFFSET + 16, &checksum, 2);
+
     sendPacket("IPv4", std::move(synPkt));
     sock_info->status = SYN_SENT;
 

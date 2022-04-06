@@ -35,10 +35,10 @@
       }
     },
     {
-      "name": "Debug kens part2",
+      "name": "Debug kens: testhandshake",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/build/app/kens/kens-part2",
+      "program": "${workspaceFolder}/build/app/kens/test-kens-handshake",
       "cwd": "${workspaceFolder}",
       "externalConsole": false,
       "logging": {
