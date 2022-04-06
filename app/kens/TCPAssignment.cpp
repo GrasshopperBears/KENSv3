@@ -253,6 +253,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     //     syscallUUID, pid, std::get<int>(param.params[0]),
     //     static_cast<struct sockaddr *>(std::get<void *>(param.params[1])),
     //     (socklen_t)std::get<int>(param.params[2]));
+    
     // printf("CONNECT\n");
     int fd = std::get<int>(param.params[0]);
     sock_info_itr sock_info_itr = find_sock_info(pid, fd);
@@ -509,7 +510,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   Packet response_packet = packet->clone();
   sock_info_itr itr;
   struct sock_info *sock_info;
-  // printf("synack handler\n");
+
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
   setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
 
@@ -546,7 +547,6 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
   uint16_t income_src_port, income_dst_port;
   sock_info_itr itr;
   struct sock_info* sock_info;
-  // printf("syn handler\n");
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
@@ -595,7 +595,6 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
     new_sock_info->peer_sockaddr->sin_addr = income_src_ip;
     new_sock_info->peer_sockaddr->sin_port = income_src_port;
     new_sock_info->peer_sockaddr->sin_len = sizeof(struct sockaddr_in);
-    // TODO: family도 packet 통해서 정보를 얻어야 하나?
     new_sock_info->peer_sockaddr->sin_family = AF_INET;
 
     sock_table.push_back(new_sock_info);
@@ -616,8 +615,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   sock_info_itr itr;
   accept_queue_itr accept_queue_itr;
 
-  // printf("ack packet\n");
-
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
   // First find parent socket by income_dst_ip and income_dst_port
@@ -637,7 +634,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     // Filter by client IP and port
     for (itr = parent_sock_info->backlog_list->begin(); itr != parent_sock_info->backlog_list->end(); ++itr) {
       sock_info = *itr;
-      if (sock_info->peer_sockaddr->sin_addr == income_src_ip && sock_info->peer_sockaddr->sin_port == income_src_port) {
+      if (isTargetSock(sock_info->peer_sockaddr, income_src_ip, income_src_port, true)) {
         break;
       }
     }
@@ -679,7 +676,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
-  printf("TimerCallback\n");
+  // printf("TimerCallback\n");
 }
 
 } // namespace E
