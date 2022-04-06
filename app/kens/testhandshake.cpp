@@ -36,7 +36,6 @@ protected:
 
 protected:
   int E_Main() {
-    printf("TestHandshake_Accept\n");
     int server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
@@ -70,7 +69,6 @@ protected:
       memset(&client_addr, 0, client_len);
       int client_fd =
           accept(server_socket, (struct sockaddr *)&client_addr, &client_len);
-      printf("In TestAccept, client_fd: %d\n", client_fd);
       if (client_fd >= 0) {
         EXPECT_EQ(client_len, sizeof(client_addr));
         EXPECT_EQ(client_addr.sin_family, AF_INET);
@@ -122,7 +120,6 @@ protected:
 
 protected:
   int E_Main() {
-    printf("TestHandshake_Connect\n");
     std::vector<int> client_sockets;
     std::vector<int> client_ports;
     int connect_count = atoi(env["CONNECT_COUNT"].c_str());
@@ -140,8 +137,6 @@ protected:
 
       addr.sin_family = AF_INET;
       addr.sin_addr.s_addr = inet_addr(env["CONNECT_ADDR"].c_str());
-      // printf("env addr.c_str: %s\n", env["CONNECT_ADDR"].c_str());
-      // printf("env addr.c_str inet_addr: %x\n", addr.sin_addr.s_addr);
       addr.sin_port = htons(atoi(env["CONNECT_PORT"].c_str()));
 
       int ret = connect(client_socket, (struct sockaddr *)&addr, len);
@@ -186,361 +181,361 @@ protected:
   }
 };
 
-// TEST_F(TestEnv_Reliable, TestAccept_Backlog1) {
-//   std::unordered_map<std::string, std::string> accept_env;
-//   std::unordered_map<std::string, std::string> connect_env;
+TEST_F(TestEnv_Reliable, TestAccept_Backlog1) {
+  std::unordered_map<std::string, std::string> accept_env;
+  std::unordered_map<std::string, std::string> connect_env;
 
-//   ipv4_t ip1 = host1->getIPAddr(0).value();
-//   ipv4_t ip2 = host2->getIPAddr(0).value();
+  ipv4_t ip1 = host1->getIPAddr(0).value();
+  ipv4_t ip2 = host2->getIPAddr(0).value();
 
-//   char str_buffer[128];
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-//            ip1[2], ip1[3]);
-//   std::string host1_ip(str_buffer);
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-//            ip2[2], ip2[3]);
-//   std::string host2_ip(str_buffer);
+  char str_buffer[128];
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+           ip1[2], ip1[3]);
+  std::string host1_ip(str_buffer);
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+           ip2[2], ip2[3]);
+  std::string host2_ip(str_buffer);
 
-//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
-//   accept_env["LISTEN_PORT"] = "9999";
-//   accept_env["BACKLOG"] = "3";
-//   accept_env["LISTEN_TIME"] = "0";
-//   accept_env["ACCEPT_TIME"] =
-//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-//   accept_env["ACCEPT_COUNT"] = "10";
-//   accept_env["EXPECT_ACCEPT"] = "3";
-//   accept_env["ACCEPT_PERIOD"] = "0";
+  accept_env["LISTEN_ADDR"] = "0.0.0.0";
+  accept_env["LISTEN_PORT"] = "9999";
+  accept_env["BACKLOG"] = "3";
+  accept_env["LISTEN_TIME"] = "0";
+  accept_env["ACCEPT_TIME"] =
+      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+  accept_env["ACCEPT_COUNT"] = "10";
+  accept_env["EXPECT_ACCEPT"] = "3";
+  accept_env["ACCEPT_PERIOD"] = "0";
 
-//   connect_env["CONNECT_ADDR"] = host1_ip;
-//   connect_env["CONNECT_PORT"] = "9999";
-//   connect_env["CONNECT_COUNT"] = "1";
-//   connect_env["EXPECT_CONNECT"] = "1";
-//   connect_env["CONNECT_PERIOD"] = "0";
+  connect_env["CONNECT_ADDR"] = host1_ip;
+  connect_env["CONNECT_PORT"] = "9999";
+  connect_env["CONNECT_COUNT"] = "1";
+  connect_env["EXPECT_CONNECT"] = "1";
+  connect_env["CONNECT_PERIOD"] = "0";
 
-//   int server_pid =
-//       host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
+  int server_pid =
+      host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
 
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(1, TimeUtil::USEC), TimeUtil::USEC);
-//   int client1_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(2, TimeUtil::USEC), TimeUtil::USEC);
-//   int client2_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(3, TimeUtil::USEC), TimeUtil::USEC);
-//   int client3_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(1, TimeUtil::USEC), TimeUtil::USEC);
+  int client1_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(2, TimeUtil::USEC), TimeUtil::USEC);
+  int client2_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(3, TimeUtil::USEC), TimeUtil::USEC);
+  int client3_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
 
-//   connect_env["EXPECT_CONNECT"] = "0";
+  connect_env["EXPECT_CONNECT"] = "0";
 
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(4, TimeUtil::USEC), TimeUtil::USEC);
-//   int client4_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(5, TimeUtil::USEC), TimeUtil::USEC);
-//   int client5_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(6, TimeUtil::USEC), TimeUtil::USEC);
-//   int client6_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(4, TimeUtil::USEC), TimeUtil::USEC);
+  int client4_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(5, TimeUtil::USEC), TimeUtil::USEC);
+  int client5_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(6, TimeUtil::USEC), TimeUtil::USEC);
+  int client6_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
 
-//   host1->launchApplication(server_pid);
-//   host2->launchApplication(client1_pid);
-//   host2->launchApplication(client2_pid);
-//   host2->launchApplication(client3_pid);
-//   host2->launchApplication(client4_pid);
-//   host2->launchApplication(client5_pid);
-//   host2->launchApplication(client6_pid);
+  host1->launchApplication(server_pid);
+  host2->launchApplication(client1_pid);
+  host2->launchApplication(client2_pid);
+  host2->launchApplication(client3_pid);
+  host2->launchApplication(client4_pid);
+  host2->launchApplication(client5_pid);
+  host2->launchApplication(client6_pid);
 
-//   this->runTest();
-// }
+  this->runTest();
+}
 
-// TEST_F(TestEnv_Reliable, TestAccept_Backlog2) {
-//   std::unordered_map<std::string, std::string> accept_env;
-//   std::unordered_map<std::string, std::string> connect_env;
+TEST_F(TestEnv_Reliable, TestAccept_Backlog2) {
+  std::unordered_map<std::string, std::string> accept_env;
+  std::unordered_map<std::string, std::string> connect_env;
 
-//   ipv4_t ip1 = host1->getIPAddr(0).value();
-//   ipv4_t ip2 = host2->getIPAddr(0).value();
+  ipv4_t ip1 = host1->getIPAddr(0).value();
+  ipv4_t ip2 = host2->getIPAddr(0).value();
 
-//   char str_buffer[128];
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-//            ip1[2], ip1[3]);
-//   std::string host1_ip(str_buffer);
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-//            ip2[2], ip2[3]);
-//   std::string host2_ip(str_buffer);
+  char str_buffer[128];
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+           ip1[2], ip1[3]);
+  std::string host1_ip(str_buffer);
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+           ip2[2], ip2[3]);
+  std::string host2_ip(str_buffer);
 
-//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
-//   accept_env["LISTEN_PORT"] = "9999";
-//   accept_env["BACKLOG"] = "1";
-//   accept_env["LISTEN_TIME"] = "0";
-//   accept_env["ACCEPT_TIME"] =
-//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-//   accept_env["ACCEPT_COUNT"] = "10";
-//   accept_env["EXPECT_ACCEPT"] = "6";
-//   accept_env["ACCEPT_PERIOD"] = "0";
+  accept_env["LISTEN_ADDR"] = "0.0.0.0";
+  accept_env["LISTEN_PORT"] = "9999";
+  accept_env["BACKLOG"] = "1";
+  accept_env["LISTEN_TIME"] = "0";
+  accept_env["ACCEPT_TIME"] =
+      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+  accept_env["ACCEPT_COUNT"] = "10";
+  accept_env["EXPECT_ACCEPT"] = "6";
+  accept_env["ACCEPT_PERIOD"] = "0";
 
-//   connect_env["CONNECT_ADDR"] = host1_ip;
-//   connect_env["CONNECT_PORT"] = "9999";
-//   connect_env["CONNECT_COUNT"] = "1";
-//   connect_env["EXPECT_CONNECT"] = "1";
-//   connect_env["CONNECT_PERIOD"] = "0";
+  connect_env["CONNECT_ADDR"] = host1_ip;
+  connect_env["CONNECT_PORT"] = "9999";
+  connect_env["CONNECT_COUNT"] = "1";
+  connect_env["EXPECT_CONNECT"] = "1";
+  connect_env["CONNECT_PERIOD"] = "0";
 
-//   int server_pid =
-//       host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(10, TimeUtil::MSEC), TimeUtil::USEC);
-//   int client1_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(20, TimeUtil::MSEC), TimeUtil::USEC);
-//   int client2_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(30, TimeUtil::MSEC), TimeUtil::USEC);
-//   int client3_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(40, TimeUtil::MSEC), TimeUtil::USEC);
-//   int client4_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(50, TimeUtil::MSEC), TimeUtil::USEC);
-//   int client5_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(60, TimeUtil::MSEC), TimeUtil::USEC);
-//   int client6_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  int server_pid =
+      host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(10, TimeUtil::MSEC), TimeUtil::USEC);
+  int client1_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(20, TimeUtil::MSEC), TimeUtil::USEC);
+  int client2_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(30, TimeUtil::MSEC), TimeUtil::USEC);
+  int client3_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(40, TimeUtil::MSEC), TimeUtil::USEC);
+  int client4_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(50, TimeUtil::MSEC), TimeUtil::USEC);
+  int client5_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(60, TimeUtil::MSEC), TimeUtil::USEC);
+  int client6_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
 
-//   host1->launchApplication(server_pid);
-//   host2->launchApplication(client1_pid);
-//   host2->launchApplication(client2_pid);
-//   host2->launchApplication(client3_pid);
-//   host2->launchApplication(client4_pid);
-//   host2->launchApplication(client5_pid);
-//   host2->launchApplication(client6_pid);
+  host1->launchApplication(server_pid);
+  host2->launchApplication(client1_pid);
+  host2->launchApplication(client2_pid);
+  host2->launchApplication(client3_pid);
+  host2->launchApplication(client4_pid);
+  host2->launchApplication(client5_pid);
+  host2->launchApplication(client6_pid);
 
-//   this->runTest();
-// }
+  this->runTest();
+}
 
-// TEST_F(TestEnv_Any, TestAccept_BeforeAccept) {
-//   std::unordered_map<std::string, std::string> accept_env;
-//   std::unordered_map<std::string, std::string> connect_env;
+TEST_F(TestEnv_Any, TestAccept_BeforeAccept) {
+  std::unordered_map<std::string, std::string> accept_env;
+  std::unordered_map<std::string, std::string> connect_env;
 
-//   ipv4_t ip1 = host1->getIPAddr(0).value();
-//   ipv4_t ip2 = host2->getIPAddr(0).value();
+  ipv4_t ip1 = host1->getIPAddr(0).value();
+  ipv4_t ip2 = host2->getIPAddr(0).value();
 
-//   char str_buffer[128];
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-//            ip1[2], ip1[3]);
-//   std::string host1_ip(str_buffer);
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-//            ip2[2], ip2[3]);
-//   std::string host2_ip(str_buffer);
+  char str_buffer[128];
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+           ip1[2], ip1[3]);
+  std::string host1_ip(str_buffer);
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+           ip2[2], ip2[3]);
+  std::string host2_ip(str_buffer);
 
-//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
-//   accept_env["LISTEN_PORT"] = "9999";
-//   accept_env["BACKLOG"] = "1";
-//   accept_env["LISTEN_TIME"] = "0";
-//   accept_env["ACCEPT_TIME"] =
-//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-//   accept_env["ACCEPT_COUNT"] = "1";
-//   accept_env["EXPECT_ACCEPT"] = "1";
-//   accept_env["ACCEPT_PERIOD"] = "0";
+  accept_env["LISTEN_ADDR"] = "0.0.0.0";
+  accept_env["LISTEN_PORT"] = "9999";
+  accept_env["BACKLOG"] = "1";
+  accept_env["LISTEN_TIME"] = "0";
+  accept_env["ACCEPT_TIME"] =
+      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+  accept_env["ACCEPT_COUNT"] = "1";
+  accept_env["EXPECT_ACCEPT"] = "1";
+  accept_env["ACCEPT_PERIOD"] = "0";
 
-//   connect_env["CONNECT_ADDR"] = host1_ip;
-//   connect_env["CONNECT_PORT"] = "9999";
-//   connect_env["CONNECT_COUNT"] = "1";
-//   connect_env["EXPECT_CONNECT"] = "1";
-//   connect_env["CONNECT_PERIOD"] = "0";
+  connect_env["CONNECT_ADDR"] = host1_ip;
+  connect_env["CONNECT_PORT"] = "9999";
+  connect_env["CONNECT_COUNT"] = "1";
+  connect_env["EXPECT_CONNECT"] = "1";
+  connect_env["CONNECT_PERIOD"] = "0";
 
-//   int server_pid =
-//       host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(100, TimeUtil::MSEC), TimeUtil::USEC);
-//   int client1_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  int server_pid =
+      host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(100, TimeUtil::MSEC), TimeUtil::USEC);
+  int client1_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
 
-//   host1->launchApplication(server_pid);
-//   host2->launchApplication(client1_pid);
+  host1->launchApplication(server_pid);
+  host2->launchApplication(client1_pid);
 
-//   this->runTest();
-// }
+  this->runTest();
+}
 
-// TEST_F(TestEnv_Any, TestAccept_AfterAccept) {
-//   std::unordered_map<std::string, std::string> accept_env;
-//   std::unordered_map<std::string, std::string> connect_env;
+TEST_F(TestEnv_Any, TestAccept_AfterAccept) {
+  std::unordered_map<std::string, std::string> accept_env;
+  std::unordered_map<std::string, std::string> connect_env;
 
-//   ipv4_t ip1 = host1->getIPAddr(0).value();
-//   ipv4_t ip2 = host2->getIPAddr(0).value();
+  ipv4_t ip1 = host1->getIPAddr(0).value();
+  ipv4_t ip2 = host2->getIPAddr(0).value();
 
-//   char str_buffer[128];
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-//            ip1[2], ip1[3]);
-//   std::string host1_ip(str_buffer);
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-//            ip2[2], ip2[3]);
-//   std::string host2_ip(str_buffer);
+  char str_buffer[128];
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+           ip1[2], ip1[3]);
+  std::string host1_ip(str_buffer);
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+           ip2[2], ip2[3]);
+  std::string host2_ip(str_buffer);
 
-//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
-//   accept_env["LISTEN_PORT"] = "9999";
-//   accept_env["BACKLOG"] = "1";
-//   accept_env["LISTEN_TIME"] = "0";
-//   accept_env["ACCEPT_TIME"] =
-//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-//   accept_env["ACCEPT_COUNT"] = "1";
-//   accept_env["EXPECT_ACCEPT"] = "1";
-//   accept_env["ACCEPT_PERIOD"] = "0";
+  accept_env["LISTEN_ADDR"] = "0.0.0.0";
+  accept_env["LISTEN_PORT"] = "9999";
+  accept_env["BACKLOG"] = "1";
+  accept_env["LISTEN_TIME"] = "0";
+  accept_env["ACCEPT_TIME"] =
+      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+  accept_env["ACCEPT_COUNT"] = "1";
+  accept_env["EXPECT_ACCEPT"] = "1";
+  accept_env["ACCEPT_PERIOD"] = "0";
 
-//   connect_env["CONNECT_ADDR"] = host1_ip;
-//   connect_env["CONNECT_PORT"] = "9999";
-//   connect_env["CONNECT_COUNT"] = "1";
-//   connect_env["EXPECT_CONNECT"] = "1";
-//   connect_env["CONNECT_PERIOD"] = "0";
+  connect_env["CONNECT_ADDR"] = host1_ip;
+  connect_env["CONNECT_PORT"] = "9999";
+  connect_env["CONNECT_COUNT"] = "1";
+  connect_env["EXPECT_CONNECT"] = "1";
+  connect_env["CONNECT_PERIOD"] = "0";
 
-//   int server_pid =
-//       host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
-//   connect_env["CONNECT_TIME"] =
-//       TimeUtil::printTime(TimeUtil::makeTime(2, TimeUtil::SEC), TimeUtil::USEC);
-//   int client1_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  int server_pid =
+      host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
+  connect_env["CONNECT_TIME"] =
+      TimeUtil::printTime(TimeUtil::makeTime(2, TimeUtil::SEC), TimeUtil::USEC);
+  int client1_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
 
-//   host1->launchApplication(server_pid);
-//   host2->launchApplication(client1_pid);
+  host1->launchApplication(server_pid);
+  host2->launchApplication(client1_pid);
 
-//   this->runTest();
-// }
+  this->runTest();
+}
 
-// TEST_F(TestEnv_Any, TestAccept_MultipleInterface1) {
-//   std::unordered_map<std::string, std::string> accept_env;
-//   std::unordered_map<std::string, std::string> connect_env;
+TEST_F(TestEnv_Any, TestAccept_MultipleInterface1) {
+  std::unordered_map<std::string, std::string> accept_env;
+  std::unordered_map<std::string, std::string> connect_env;
 
-//   ipv4_t ip1 = host1->getIPAddr(0).value();
-//   ipv4_t ip1_2 = host1->getIPAddr(1).value();
-//   ipv4_t ip2 = host2->getIPAddr(0).value();
+  ipv4_t ip1 = host1->getIPAddr(0).value();
+  ipv4_t ip1_2 = host1->getIPAddr(1).value();
+  ipv4_t ip2 = host2->getIPAddr(0).value();
 
-//   char str_buffer[128];
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-//            ip1[2], ip1[3]);
-//   std::string host1_ip(str_buffer);
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1_2[0], ip1_2[1],
-//            ip1_2[2], ip1_2[3]);
-//   std::string host1_ip2(str_buffer);
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-//            ip2[2], ip2[3]);
-//   std::string host2_ip(str_buffer);
+  char str_buffer[128];
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+           ip1[2], ip1[3]);
+  std::string host1_ip(str_buffer);
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1_2[0], ip1_2[1],
+           ip1_2[2], ip1_2[3]);
+  std::string host1_ip2(str_buffer);
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+           ip2[2], ip2[3]);
+  std::string host2_ip(str_buffer);
 
-//   accept_env["LISTEN_PORT"] = "9999";
-//   accept_env["BACKLOG"] = "1";
-//   accept_env["LISTEN_TIME"] = "0";
-//   accept_env["ACCEPT_TIME"] =
-//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-//   accept_env["ACCEPT_PERIOD"] = "0";
+  accept_env["LISTEN_PORT"] = "9999";
+  accept_env["BACKLOG"] = "1";
+  accept_env["LISTEN_TIME"] = "0";
+  accept_env["ACCEPT_TIME"] =
+      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+  accept_env["ACCEPT_PERIOD"] = "0";
 
-//   accept_env["ACCEPT_COUNT"] = "3";
-//   accept_env["EXPECT_ACCEPT"] = "3";
-//   accept_env["LISTEN_ADDR"] = host1_ip;
-//   int server1_pid =
-//       host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
+  accept_env["ACCEPT_COUNT"] = "3";
+  accept_env["EXPECT_ACCEPT"] = "3";
+  accept_env["LISTEN_ADDR"] = host1_ip;
+  int server1_pid =
+      host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
 
-//   accept_env["ACCEPT_COUNT"] = "5";
-//   accept_env["EXPECT_ACCEPT"] = "5";
-//   accept_env["LISTEN_ADDR"] = host1_ip2;
-//   int server2_pid =
-//       host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
+  accept_env["ACCEPT_COUNT"] = "5";
+  accept_env["EXPECT_ACCEPT"] = "5";
+  accept_env["LISTEN_ADDR"] = host1_ip2;
+  int server2_pid =
+      host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
 
-//   connect_env["CONNECT_PORT"] = "9999";
-//   connect_env["CONNECT_PERIOD"] = "1";
-//   connect_env["CONNECT_TIME"] =
-//       TimeUtil::printTime(TimeUtil::makeTime(2, TimeUtil::SEC), TimeUtil::USEC);
+  connect_env["CONNECT_PORT"] = "9999";
+  connect_env["CONNECT_PERIOD"] = "1";
+  connect_env["CONNECT_TIME"] =
+      TimeUtil::printTime(TimeUtil::makeTime(2, TimeUtil::SEC), TimeUtil::USEC);
 
-//   connect_env["CONNECT_ADDR"] = host1_ip;
-//   connect_env["CONNECT_COUNT"] = "3";
-//   connect_env["EXPECT_CONNECT"] = "3";
-//   int client1_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_ADDR"] = host1_ip;
+  connect_env["CONNECT_COUNT"] = "3";
+  connect_env["EXPECT_CONNECT"] = "3";
+  int client1_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
 
-//   connect_env["CONNECT_ADDR"] = host1_ip2;
-//   connect_env["CONNECT_COUNT"] = "5";
-//   connect_env["EXPECT_CONNECT"] = "5";
-//   int client2_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_ADDR"] = host1_ip2;
+  connect_env["CONNECT_COUNT"] = "5";
+  connect_env["EXPECT_CONNECT"] = "5";
+  int client2_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
 
-//   host1->launchApplication(server1_pid);
-//   host2->launchApplication(client1_pid);
-//   host1->launchApplication(server2_pid);
-//   host2->launchApplication(client2_pid);
+  host1->launchApplication(server1_pid);
+  host2->launchApplication(client1_pid);
+  host1->launchApplication(server2_pid);
+  host2->launchApplication(client2_pid);
 
-//   this->runTest();
-// }
+  this->runTest();
+}
 
-// TEST_F(TestEnv_Any, TestAccept_MultipleInterface2) {
-//   std::unordered_map<std::string, std::string> accept_env;
-//   std::unordered_map<std::string, std::string> connect_env;
+TEST_F(TestEnv_Any, TestAccept_MultipleInterface2) {
+  std::unordered_map<std::string, std::string> accept_env;
+  std::unordered_map<std::string, std::string> connect_env;
 
-//   ipv4_t ip1 = host1->getIPAddr(0).value();
-//   ipv4_t ip1_2 = host1->getIPAddr(1).value();
-//   ipv4_t ip2 = host2->getIPAddr(0).value();
+  ipv4_t ip1 = host1->getIPAddr(0).value();
+  ipv4_t ip1_2 = host1->getIPAddr(1).value();
+  ipv4_t ip2 = host2->getIPAddr(0).value();
 
-//   char str_buffer[128];
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-//            ip1[2], ip1[3]);
-//   std::string host1_ip(str_buffer);
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1_2[0], ip1_2[1],
-//            ip1_2[2], ip1_2[3]);
-//   std::string host1_ip2(str_buffer);
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-//            ip2[2], ip2[3]);
-//   std::string host2_ip(str_buffer);
+  char str_buffer[128];
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+           ip1[2], ip1[3]);
+  std::string host1_ip(str_buffer);
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1_2[0], ip1_2[1],
+           ip1_2[2], ip1_2[3]);
+  std::string host1_ip2(str_buffer);
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+           ip2[2], ip2[3]);
+  std::string host2_ip(str_buffer);
 
-//   accept_env["LISTEN_PORT"] = "9999";
-//   accept_env["BACKLOG"] = "1";
-//   accept_env["LISTEN_TIME"] = "0";
-//   accept_env["ACCEPT_TIME"] =
-//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-//   accept_env["ACCEPT_PERIOD"] = "0";
+  accept_env["LISTEN_PORT"] = "9999";
+  accept_env["BACKLOG"] = "1";
+  accept_env["LISTEN_TIME"] = "0";
+  accept_env["ACCEPT_TIME"] =
+      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+  accept_env["ACCEPT_PERIOD"] = "0";
 
-//   accept_env["ACCEPT_COUNT"] = "4";
-//   accept_env["EXPECT_ACCEPT"] = "4";
-//   accept_env["LISTEN_ADDR"] = host1_ip;
-//   int server1_pid =
-//       host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
+  accept_env["ACCEPT_COUNT"] = "4";
+  accept_env["EXPECT_ACCEPT"] = "4";
+  accept_env["LISTEN_ADDR"] = host1_ip;
+  int server1_pid =
+      host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
 
-//   accept_env["ACCEPT_COUNT"] = "2";
-//   accept_env["EXPECT_ACCEPT"] = "2";
-//   accept_env["LISTEN_ADDR"] = host1_ip2;
-//   int server2_pid =
-//       host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
+  accept_env["ACCEPT_COUNT"] = "2";
+  accept_env["EXPECT_ACCEPT"] = "2";
+  accept_env["LISTEN_ADDR"] = host1_ip2;
+  int server2_pid =
+      host1->addApplication<TestHandshake_Accept>(*host1, accept_env);
 
-//   connect_env["CONNECT_PORT"] = "9999";
-//   connect_env["CONNECT_PERIOD"] = "1";
-//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-//       TimeUtil::makeTime(100, TimeUtil::MSEC), TimeUtil::USEC);
+  connect_env["CONNECT_PORT"] = "9999";
+  connect_env["CONNECT_PERIOD"] = "1";
+  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+      TimeUtil::makeTime(100, TimeUtil::MSEC), TimeUtil::USEC);
 
-//   connect_env["CONNECT_ADDR"] = host1_ip;
-//   connect_env["CONNECT_COUNT"] = "4";
-//   connect_env["EXPECT_CONNECT"] = "4";
-//   int client1_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_ADDR"] = host1_ip;
+  connect_env["CONNECT_COUNT"] = "4";
+  connect_env["EXPECT_CONNECT"] = "4";
+  int client1_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
 
-//   connect_env["CONNECT_ADDR"] = host1_ip2;
-//   connect_env["CONNECT_COUNT"] = "2";
-//   connect_env["EXPECT_CONNECT"] = "2";
-//   int client2_pid =
-//       host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
+  connect_env["CONNECT_ADDR"] = host1_ip2;
+  connect_env["CONNECT_COUNT"] = "2";
+  connect_env["EXPECT_CONNECT"] = "2";
+  int client2_pid =
+      host2->addApplication<TestHandshake_Connect>(*host2, connect_env);
 
-//   host1->launchApplication(server1_pid);
-//   host2->launchApplication(client1_pid);
-//   host1->launchApplication(server2_pid);
-//   host2->launchApplication(client2_pid);
+  host1->launchApplication(server1_pid);
+  host2->launchApplication(client1_pid);
+  host1->launchApplication(server2_pid);
+  host2->launchApplication(client2_pid);
 
-//   this->runTest();
-// }
+  this->runTest();
+}
 
 TEST_F(TestEnv_Any, TestConnect_BeforeAccept) {
   std::unordered_map<std::string, std::string> accept_env;
@@ -690,41 +685,41 @@ protected:
   }
 };
 
-// TEST_F(TestEnv_Any, TestConnect_SimultaneousConnect) {
-//   std::unordered_map<std::string, std::string> connect_env;
+TEST_F(TestEnv_Any, TestConnect_SimultaneousConnect) {
+  std::unordered_map<std::string, std::string> connect_env;
 
-//   ipv4_t ip1 = host1->getIPAddr(0).value();
-//   ipv4_t ip2 = host2->getIPAddr(0).value();
+  ipv4_t ip1 = host1->getIPAddr(0).value();
+  ipv4_t ip2 = host2->getIPAddr(0).value();
 
-//   char str_buffer[128];
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-//            ip1[2], ip1[3]);
-//   std::string host1_ip(str_buffer);
-//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-//            ip2[2], ip2[3]);
-//   std::string host2_ip(str_buffer);
+  char str_buffer[128];
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+           ip1[2], ip1[3]);
+  std::string host1_ip(str_buffer);
+  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+           ip2[2], ip2[3]);
+  std::string host2_ip(str_buffer);
 
-//   connect_env["CONNECT_ADDR"] = host2_ip;
-//   connect_env["CONNECT_PORT"] = "12345";
-//   connect_env["BIND_ADDR"] = host1_ip;
-//   connect_env["BIND_PORT"] = "22222";
+  connect_env["CONNECT_ADDR"] = host2_ip;
+  connect_env["CONNECT_PORT"] = "12345";
+  connect_env["BIND_ADDR"] = host1_ip;
+  connect_env["BIND_PORT"] = "22222";
 
-//   connect_env["CONNECT_TIME"] =
-//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-//   int client1_pid = host1->addApplication<TestHandshake_SimultaneousConnect>(
-//       *host1, connect_env);
+  connect_env["CONNECT_TIME"] =
+      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+  int client1_pid = host1->addApplication<TestHandshake_SimultaneousConnect>(
+      *host1, connect_env);
 
-//   connect_env["CONNECT_ADDR"] = host1_ip;
-//   connect_env["CONNECT_PORT"] = "22222";
-//   connect_env["BIND_ADDR"] = host2_ip;
-//   connect_env["BIND_PORT"] = "12345";
-//   connect_env["CONNECT_TIME"] =
-//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-//   int client2_pid = host2->addApplication<TestHandshake_SimultaneousConnect>(
-//       *host2, connect_env);
+  connect_env["CONNECT_ADDR"] = host1_ip;
+  connect_env["CONNECT_PORT"] = "22222";
+  connect_env["BIND_ADDR"] = host2_ip;
+  connect_env["BIND_PORT"] = "12345";
+  connect_env["CONNECT_TIME"] =
+      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+  int client2_pid = host2->addApplication<TestHandshake_SimultaneousConnect>(
+      *host2, connect_env);
 
-//   host1->launchApplication(client1_pid);
-//   host2->launchApplication(client2_pid);
+  host1->launchApplication(client1_pid);
+  host2->launchApplication(client2_pid);
 
-//   this->runTest();
-// }
+  this->runTest();
+}
