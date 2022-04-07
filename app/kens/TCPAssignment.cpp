@@ -84,8 +84,12 @@ void TCPAssignment::finalize() {
   }
   if (accept_queue.size() > 0) {
     accept_queue_itr accept_queue_itr = accept_queue.begin();
+    AcceptQueueItem *tmp;
     while (accept_queue_itr != accept_queue.end()) {
+      tmp = *accept_queue_itr;
       accept_queue_itr = accept_queue.erase(accept_queue_itr);
+      free(tmp->param);
+      free(tmp);
     }
   }
 }
@@ -283,10 +287,15 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     Packet synPkt (54);
     setPacketSrcDst(&synPkt, &myIp, &port, &param_addr->sin_addr.s_addr, &param_addr->sin_port);
     
-    // TODO: NULL exception
     sock_info->my_sockaddr = get_new_sockaddr_in(myIp, port);
     sock_info->peer_sockaddr = get_new_sockaddr_in(param_addr->sin_addr.s_addr, param_addr->sin_port);
     sock_info->syscallUUID = syscallUUID;
+
+    if (sock_info->my_sockaddr == NULL || sock_info->peer_sockaddr == NULL) {
+      if (sock_info->peer_sockaddr != NULL) { free(sock_info->peer_sockaddr); }
+      free(sock_info->peer_sockaddr);
+      return returnSystemCall(syscallUUID, -1);
+    }
 
     uint8_t tcp_len = 5 << 4;
     uint16_t window_size = htons(1);
