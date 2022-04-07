@@ -63,7 +63,6 @@ struct UsingResourceInfo {
 
 const int PACKET_OFFSET = 14;
 const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
-int SEQNUM = 100;
 
 std::list<sock_info*> sock_table;
 
@@ -144,6 +143,13 @@ void set_packet_flags(Packet *packet, uint8_t flags) {
   packet->writeData(SEGMENT_OFFSET + 13, &flags, 1);
 }
 
+u_int32_t getRandomSequnceNumber() {
+  u_int32_t seq_num;
+  srand((unsigned int) time(NULL));
+  seq_num = (u_int32_t) (rand() + rand()); // MAX of rand() is 0x7fffffff
+  return seq_num;
+}
+
 /*
   set_seq_ack_number: Set seq and ack number of res_pkt.
   Parameter "flag":
@@ -156,9 +162,9 @@ void set_seq_ack_number(Packet *req_pkt, Packet *res_pkt, uint flag) {
   req_pkt->readData(SEGMENT_OFFSET+4, &req_seq, 4);
   req_pkt->readData(SEGMENT_OFFSET+8, &req_ack, 4);
   if (flag == (TH_ACK | TH_SYN)) {
-    new_seq = htonl(SEQNUM);
+    u_int32_t seq_num = getRandomSequnceNumber();
+    new_seq = htonl(seq_num);
     new_ack = htonl(ntohl(req_seq)+1);
-
   }
   else if (flag == TH_ACK) {
     new_seq = req_ack;
@@ -380,11 +386,11 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     uint8_t tcp_len = 5 << 4;
     uint16_t window_size = htons(1);
-    uint32_t nSEQNUM = htonl(SEQNUM);
+    u_int32_t seq_num = getRandomSequnceNumber();
     synPkt.writeData(SEGMENT_OFFSET + 12, &tcp_len, 1);
 
     // TODO: seq number random generation
-    synPkt.writeData(SEGMENT_OFFSET + 4, &SEQNUM, 4);
+    synPkt.writeData(SEGMENT_OFFSET + 4, &seq_num, 4);
     set_packet_flags(&synPkt, TH_SYN);
     synPkt.writeData(SEGMENT_OFFSET + 14, &window_size, 2);
 
