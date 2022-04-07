@@ -205,11 +205,15 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
   // When this code is executed, we have to wait util socket to be established
   // or next packet comes from client
   accept_queue_item = (struct AcceptQueueItem *) malloc(sizeof(struct AcceptQueueItem));
+  if (accept_queue_item == NULL) {
+    return returnSystemCall(syscallUUID, -1);
+  }
   accept_queue_item->syscallUUID = syscallUUID;
   accept_queue_item->pid = pid;
   accept_queue_item->param = param;
 
   accept_queue.push_back(accept_queue_item);
+  printf("queue pushed\n");
   return;
 }
 
@@ -713,7 +717,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     parent_sock_info->child_sock_list->push_back(sock_info);
 
     if (accept_queue.size() > 0) {
-      for (accept_queue_itr = accept_queue.begin(); accept_queue_itr != accept_queue.end(); ++itr) {
+      for (accept_queue_itr = accept_queue.begin(); accept_queue_itr != accept_queue.end(); ++accept_queue_itr) {
         accept_queue_item = *accept_queue_itr;
         if (parent_sock_info->pid == accept_queue_item->pid && parent_sock_info->fd == std::get<int>(accept_queue_item->param->params[0])) {
           accept_queue.erase(accept_queue_itr);
