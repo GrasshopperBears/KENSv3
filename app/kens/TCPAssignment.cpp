@@ -105,6 +105,15 @@ void TCPAssignment::finalize() {
       free(tmp);
     }
   }
+  if (using_resource_list.size() > 0) {
+    using_resource_itr using_resource_itr = using_resource_list.begin();
+    UsingResourceInfo *tmp;
+    while (using_resource_itr != using_resource_list.end()) {
+      tmp = *using_resource_itr;
+      using_resource_itr = using_resource_list.erase(using_resource_itr);
+      free(tmp);
+    }
+  }
 }
 
 sock_info_itr find_sock_info(int pid, int fd) {
@@ -252,6 +261,17 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       free(sock_info->peer_sockaddr);
     free(sock_info);
 
+    struct UsingResourceInfo* using_resource_info;
+    using_resource_itr using_resource_itr;
+    for (using_resource_itr = using_resource_list.begin(); using_resource_itr != using_resource_list.end(); using_resource_itr++) {
+      if ((*using_resource_itr)->fd == fd && (*using_resource_itr)->pid == pid) {
+        using_resource_info = *using_resource_itr;
+        using_resource_list.erase(using_resource_itr);
+        free(using_resource_info);
+        break;
+      }
+    } 
+
     returnSystemCall(syscallUUID, 0);
     break;
   }
@@ -305,6 +325,11 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       } while (isDuplicate);
 
       struct UsingResourceInfo* using_resource_info = (struct UsingResourceInfo *) malloc((sizeof(struct UsingResourceInfo)));
+      if (sock_info == NULL) {
+        printf("Error: can't allocate memory(using_resource_info)\n");
+        returnSystemCall(syscallUUID, -1);
+        break;
+      }
       using_resource_info->fd = fd;
       using_resource_info->pid = pid;
       using_resource_info->port = port;
