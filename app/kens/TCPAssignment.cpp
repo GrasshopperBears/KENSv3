@@ -360,6 +360,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     uint16_t window_size = htons(1);
 
     synPkt.writeData(SEGMENT_OFFSET + 12, &tcp_len, 1);
+
+    // TODO: seq number random generation
     synPkt.writeData(SEGMENT_OFFSET + 4, &SEQNUM, 4);
     set_packet_flags(&synPkt, TH_SYN);
     synPkt.writeData(SEGMENT_OFFSET + 14, &window_size, 2);
@@ -667,6 +669,10 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
     sock_table.push_back(new_sock_info);
     sock_info->backlog_list->push_back(new_sock_info);
 
+    set_packet_flags(&response_packet, TH_ACK | TH_SYN);
+    set_seq_ack_number(packet, &response_packet);
+    set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
+
     sendPacket("IPv4", std::move(response_packet));
   }
 
@@ -724,6 +730,10 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       }
     }
     setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
+    set_packet_flags(&packet_to_client, TH_ACK);
+    set_seq_ack_number(packet, &packet_to_client);
+    set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
+    
     sendPacket("IPv4", std::move(packet_to_client));
   }
 }
