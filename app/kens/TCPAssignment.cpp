@@ -144,13 +144,31 @@ void set_packet_flags(Packet *packet, uint8_t flags) {
   packet->writeData(SEGMENT_OFFSET + 13, &flags, 1);
 }
 
-void set_seq_ack_number(Packet *req_pkt, Packet *res_pkt) {
-  uint32_t req_seq, req_ack, new_ack;
+/*
+  set_seq_ack_number: Set seq and ack number of res_pkt.
+  Parameter "flag":
+    TH_ACK | TH_SYN: [server] ---SYNACK---> [client]
+    TH_ACK         : [client] ------ACK---> [server] 
+*/
+void set_seq_ack_number(Packet *req_pkt, Packet *res_pkt, uint flag) {
+  uint32_t req_seq, req_ack, new_seq, new_ack;
 
   req_pkt->readData(SEGMENT_OFFSET+4, &req_seq, 4);
   req_pkt->readData(SEGMENT_OFFSET+8, &req_ack, 4);
-  new_ack = htonl(ntohl(req_seq)+1);
-  res_pkt->writeData(SEGMENT_OFFSET+4, &req_ack, 4);
+  if (flag == (TH_ACK | TH_SYN)) {
+    new_seq = htonl(SEQNUM);
+    new_ack = htonl(ntohl(req_seq)+1);
+
+  }
+  else if (flag == TH_ACK) {
+    new_seq = req_ack;
+    new_ack = htonl(ntohl(req_seq)+1);
+  }
+  else {
+    printf("Invalid flag: %x\n", flag);
+    return;
+  }
+  res_pkt->writeData(SEGMENT_OFFSET+4, &new_seq, 4);
   res_pkt->writeData(SEGMENT_OFFSET+8, &new_ack, 4);
 }
 
@@ -316,6 +334,10 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
         isDuplicate = false;
         srand((unsigned int) time(NULL));
         port = (in_port_t) (rand() % 0x10000);
+
+        if (port < 1024) // Escape well-known port(0~1023)
+          continue;
+
         port = htons(port);
         for (using_resource_itr = using_resource_list.begin(); using_resource_itr != using_resource_list.end(); ++using_resource_itr) {
           if ((*using_resource_itr)->port == port) {
@@ -358,7 +380,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     uint8_t tcp_len = 5 << 4;
     uint16_t window_size = htons(1);
-
+    uint32_t nSEQNUM = htonl(SEQNUM);
     synPkt.writeData(SEGMENT_OFFSET + 12, &tcp_len, 1);
 
     // TODO: seq number random generation
@@ -600,7 +622,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     // TODO: ACK and SYN flag, seq number 처리
 
     set_packet_flags(&response_packet, TH_ACK);
-    set_seq_ack_number(packet, &response_packet);
+    set_seq_ack_number(packet, &response_packet, TH_ACK);
     set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
 
     sendPacket("IPv4", std::move(response_packet));
@@ -670,7 +692,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
     sock_info->backlog_list->push_back(new_sock_info);
 
     set_packet_flags(&response_packet, TH_ACK | TH_SYN);
-    set_seq_ack_number(packet, &response_packet);
+    set_seq_ack_number(packet, &response_packet, TH_ACK | TH_SYN);
     set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
 
     sendPacket("IPv4", std::move(response_packet));
@@ -731,7 +753,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     }
     setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
     set_packet_flags(&packet_to_client, TH_ACK);
-    set_seq_ack_number(packet, &packet_to_client);
+    set_seq_ack_number(packet, &packet_to_client, TH_ACK);
     set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
     
     sendPacket("IPv4", std::move(packet_to_client));
