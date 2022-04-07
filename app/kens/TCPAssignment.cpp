@@ -51,6 +51,14 @@ struct AcceptQueueItem {
   int pid;
   SystemCallInterface::SystemCallParameter *param;
 };
+
+struct UsingResourceInfo {
+  uint32_t sin_addr;
+  in_port_t port;
+  int fd;
+  int pid;
+  UUID syscalUUID;
+};
 // ----------------structs end----------------
 
 const int PACKET_OFFSET = 14;
@@ -62,8 +70,13 @@ std::list<sock_info*> sock_table;
 // accept_queue is a queue for blocking accept.
 // pushed by acceptHandler and poped by handleAckPacket.
 std::list<AcceptQueueItem *> accept_queue;
+
+// using_resource_list is a list for checking duplicate info.
+std::list<UsingResourceInfo *> using_resource_list;
+
 using sock_info_itr = typename std::list<struct sock_info*>::iterator;
 using accept_queue_itr = typename std::list<struct AcceptQueueItem*>::iterator;
+using using_resource_itr = typename std::list<struct UsingResourceInfo*>::iterator;
 
 TCPAssignment::TCPAssignment(Host &host)
     : HostModule("TCP", host), RoutingInfoInterface(host),
@@ -275,8 +288,28 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     if (sock_info->my_sockaddr != NULL && sock_info->my_sockaddr->sin_port > 0) {
       port = sock_info->my_sockaddr->sin_port;
     } else {
+      using_resource_itr using_resource_itr;
+      bool isDuplicate;
       // FIXME: random 포트 부여 및 관리
-      port = htons(45924);
+      do {
+        isDuplicate = false;
+        srand((unsigned int) time(NULL));
+        port = (in_port_t) (rand() % 0x10000);
+        port = htons(port);
+        for (using_resource_itr = using_resource_list.begin(); using_resource_itr != using_resource_list.end(); ++using_resource_itr) {
+          if ((*using_resource_itr)->port == port) {
+            isDuplicate = true;
+            break;
+          }
+        }
+      } while (isDuplicate);
+
+      struct UsingResourceInfo* using_resource_info = (struct UsingResourceInfo *) malloc((sizeof(struct UsingResourceInfo)));
+      using_resource_info->fd = fd;
+      using_resource_info->pid = pid;
+      using_resource_info->port = port;
+      using_resource_info->syscalUUID = syscallUUID;
+      using_resource_list.push_back(using_resource_info);
     }
 
     ipv4_t _ip = getIPAddr((uint16_t) getRoutingTable(dstIp)).value();
