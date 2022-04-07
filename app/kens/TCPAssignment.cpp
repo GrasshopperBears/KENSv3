@@ -36,7 +36,7 @@ struct sock_info {
   std::list<sock_info*>* backlog_list;
   enum Status status;
   int backlog;
-  UUID syscallUUID;
+  UUID connect_syscallUUID;
 };
 
 struct kens_sockaddr_in {
@@ -348,7 +348,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     
     sock_info->my_sockaddr = get_new_sockaddr_in(myIp, port);
     sock_info->peer_sockaddr = get_new_sockaddr_in(param_addr->sin_addr.s_addr, param_addr->sin_port);
-    sock_info->syscallUUID = syscallUUID;
+    sock_info->connect_syscallUUID = syscallUUID;
 
     if (sock_info->my_sockaddr == NULL || sock_info->peer_sockaddr == NULL) {
       if (sock_info->peer_sockaddr != NULL) { free(sock_info->peer_sockaddr); }
@@ -602,8 +602,8 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
 
     sendPacket("IPv4", std::move(response_packet));
-    returnSystemCall(sock_info->syscallUUID, 0);
-    sock_info->syscallUUID = 0;
+    returnSystemCall(sock_info->connect_syscallUUID, 0);
+    sock_info->connect_syscallUUID = 0;
     return;
   }
   return sendPacket("IPv4", std::move(response_packet));
