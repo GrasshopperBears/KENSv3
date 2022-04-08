@@ -328,14 +328,13 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param.params[1]));
     ipv4_t dstIp = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t) param_addr->sin_addr.s_addr);
 
-    // TODO: 포트 및 routingTable 관리
     uint16_t port;
     if (sock_info->my_sockaddr != NULL && sock_info->my_sockaddr->sin_port > 0) {
       port = sock_info->my_sockaddr->sin_port;
     } else {
       using_resource_itr using_resource_itr;
       bool isDuplicate;
-      // FIXME: random 포트 부여 및 관리
+      // Give a random port.
       do {
         isDuplicate = false;
         srand((unsigned int) time(NULL));
@@ -367,8 +366,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     }
 
     ipv4_t _ip = getIPAddr((uint16_t) getRoutingTable(dstIp)).value();
-    
-    // setRoutingTable(_ip, 0, ntohs(port));
 
     u_int32_t myIp = NetworkUtil::arrayToUINT64(_ip);
     Packet synPkt (54);
@@ -389,7 +386,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     u_int32_t seq_num = getRandomSequnceNumber();
     synPkt.writeData(SEGMENT_OFFSET + 12, &tcp_len, 1);
 
-    // TODO: seq number random generation
     synPkt.writeData(SEGMENT_OFFSET + 4, &seq_num, 4);
     set_packet_flags(&synPkt, TH_SYN);
     synPkt.writeData(SEGMENT_OFFSET + 14, &window_size, 2);
@@ -625,7 +621,6 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
 
   if (sock_info->status == Status::SYN_SENT) {
     sock_info->status = Status::ESTAB;
-    // TODO: ACK and SYN flag, seq number 처리
 
     set_packet_flags(&response_packet, TH_ACK);
     set_seq_ack_number(packet, &response_packet, TH_ACK);
@@ -647,8 +642,6 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
-  // TODO: 이미 ESTAB된 socket일 경우 데이터 주고받기
-
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     sock_info = *itr;
     if (isTargetSock(sock_info->my_sockaddr, income_dst_ip, income_dst_port)) {
@@ -662,15 +655,13 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
   // Server: initiallize TCP connection (1st step of 3-way handshake)
   if (sock_info->status == Status::LISTEN) {
-    Packet response_packet = packet->clone();   // TODO: more than clone
+    Packet response_packet = packet->clone();
     struct sock_info* new_sock_info;
 
     setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
     
     // backlog count check
     if (sock_info->backlog <= sock_info->backlog_list->size()) {
-      // 무시 혹은 RST flag set
-      // TODO: (maybe) clone한 패킷 처리?
       return;
     }
     
