@@ -620,7 +620,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     }
   }
   if (itr == sock_table.end()) {
-    return sendPacket("IPv4", std::move(response_packet));
+    return;
   }
 
   if (sock_info->status == Status::SYN_SENT) {
