@@ -297,7 +297,9 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
         free(using_resource_info);
         break;
       }
-    } 
+    }
+    delete sock_info->backlog_list;
+    delete sock_info->child_sock_list;
 
     returnSystemCall(syscallUUID, 0);
     break;
