@@ -330,13 +330,14 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       (struct sockaddr_in *) static_cast<struct sockaddr *>(std::get<void *>(param.params[1]));
     ipv4_t dstIp = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t) param_addr->sin_addr.s_addr);
 
+    // TODO: 포트 및 routingTable 관리
     uint16_t port;
     if (sock_info->my_sockaddr != NULL && sock_info->my_sockaddr->sin_port > 0) {
       port = sock_info->my_sockaddr->sin_port;
     } else {
       using_resource_itr using_resource_itr;
       bool isDuplicate;
-      // Give a random port.
+      // FIXME: Give a random port.
       do {
         isDuplicate = false;
         srand((unsigned int) time(NULL));
@@ -664,13 +665,14 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
   // Server: initiallize TCP connection (1st step of 3-way handshake)
   if (sock_info->status == Status::LISTEN) {
-    Packet response_packet = packet->clone();
+    Packet response_packet = packet->clone(); // TODO: more than clone
     struct sock_info* new_sock_info;
 
     setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
     
     // backlog count check
     if (sock_info->backlog <= sock_info->backlog_list->size()) {
+      // 무시 혹은 RST flag set
       return;
     }
     
