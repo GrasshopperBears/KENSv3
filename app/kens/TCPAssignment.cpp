@@ -636,7 +636,6 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->connect_syscallUUID = 0;
     return;
   }
-  return sendPacket("IPv4", std::move(response_packet));
 }
 
 void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
