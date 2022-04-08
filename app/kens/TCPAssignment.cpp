@@ -507,6 +507,10 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       break;
     }
     struct kens_sockaddr_in* sockaddr_in = (*found_item_itr)->my_sockaddr;
+    if (sockaddr_in == NULL) {
+      returnSystemCall(syscallUUID, -1);
+      break;
+    }
 
     addr->sin_addr.s_addr = sockaddr_in->sin_addr;
     addr->sin_family = sockaddr_in->sin_family;
@@ -532,6 +536,10 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       break;
     }
     struct kens_sockaddr_in* peerAddr_in = (*found_item_itr)->peer_sockaddr;
+    if (peerAddr_in == NULL) {
+      returnSystemCall(syscallUUID, -1);
+      break;
+    }
 
     addr->sin_addr.s_addr = peerAddr_in->sin_addr;
     addr->sin_family = peerAddr_in->sin_family;
@@ -616,7 +624,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     }
   }
   if (itr == sock_table.end()) {
-    return sendPacket("IPv4", std::move(response_packet));
+    return;
   }
 
   if (sock_info->status == Status::SYN_SENT) {
@@ -631,7 +639,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->connect_syscallUUID = 0;
     return;
   }
-  return sendPacket("IPv4", std::move(response_packet));
+  return;
 }
 
 void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
