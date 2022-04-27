@@ -267,7 +267,7 @@ protected:
     while (!stop) {
       for (int k = 0; k < buffer_size; k++)
         send_buffer[k] = rand_d(rand_e);
-
+      printf("In write test, write contents: %x\n", send_buffer);
       if (is_send) {
         int remaining = buffer_size;
         int write_byte = 0;
@@ -389,655 +389,655 @@ TEST_F(TestEnv_Any, TestTransfer_Connect_Send_Symmetric) {
  * `read` system call unless the `EOF` is received.  You should implement proper
  * `close` semantics to pass this test.
  */
-TEST_F(TestEnv_Any, TestTransfer_Connect_Send_EOF) {
-  std::unordered_map<std::string, std::string> accept_env;
-  std::unordered_map<std::string, std::string> connect_env;
-
-  int seed = rand();
-  accept_env["RANDOM_SEED"] = seed;
-  connect_env["RANDOM_SEED"] = seed;
-
-  ipv4_t ip1 = host1->getIPAddr(0).value();
-  ipv4_t ip2 = host2->getIPAddr(0).value();
-
-  char str_buffer[128];
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-           ip1[2], ip1[3]);
-  std::string host1_ip(str_buffer);
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-           ip2[2], ip2[3]);
-  std::string host2_ip(str_buffer);
-
-  accept_env["LISTEN_ADDR"] = "0.0.0.0";
-  accept_env["LISTEN_PORT"] = "9999";
-  accept_env["BACKLOG"] = "1";
-  accept_env["LISTEN_TIME"] = "0";
-  accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
-  accept_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_PORT"] = "9999";
-  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
-  connect_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_ADDR"] = host2_ip;
-  connect_env["BUFFER_SIZE"] = "1024";
-  connect_env["LOOP_COUNT"] = "128";
-  connect_env["SENDER"] = "1";
-  connect_env["EXPECT_SIZE"] = "131072";
-  int client_pid =
-      host1->addApplication<TestTransfer_Connect>(*host1, connect_env);
-
-  accept_env["SENDER"] = "0";
-  accept_env["BUFFER_SIZE"] = "1024";
-  accept_env["LOOP_COUNT"] = "0";
-  accept_env["EXPECT_SIZE"] = "131072";
-  int server_pid =
-      host2->addApplication<TestTransfer_Accept>(*host2, accept_env);
-
-  host2->launchApplication(server_pid);
-  host1->launchApplication(client_pid);
-
-  this->runTest();
-}
-
-/**
- * Data direction: Server -> Client.
- *
- * Same as `TestTransfer_Connect_Send_Symmetric` but the data direction is
- * changed.
- */
-TEST_F(TestEnv_Any, TestTransfer_Connect_Recv_Symmetric) {
-  std::unordered_map<std::string, std::string> accept_env;
-  std::unordered_map<std::string, std::string> connect_env;
-
-  int seed = rand();
-  accept_env["RANDOM_SEED"] = seed;
-  connect_env["RANDOM_SEED"] = seed;
-
-  ipv4_t ip1 = host1->getIPAddr(0).value();
-  ipv4_t ip2 = host2->getIPAddr(0).value();
-
-  char str_buffer[128];
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-           ip1[2], ip1[3]);
-  std::string host1_ip(str_buffer);
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-           ip2[2], ip2[3]);
-  std::string host2_ip(str_buffer);
-
-  accept_env["LISTEN_ADDR"] = "0.0.0.0";
-  accept_env["LISTEN_PORT"] = "9999";
-  accept_env["BACKLOG"] = "1";
-  accept_env["LISTEN_TIME"] = "0";
-  accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
-  accept_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_PORT"] = "9999";
-  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
-  connect_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_ADDR"] = host2_ip;
-  connect_env["BUFFER_SIZE"] = "1024";
-  connect_env["LOOP_COUNT"] = "128";
-  connect_env["SENDER"] = "0";
-  connect_env["EXPECT_SIZE"] = "131072";
-  int client_pid =
-      host1->addApplication<TestTransfer_Connect>(*host1, connect_env);
-
-  accept_env["SENDER"] = "1";
-  accept_env["BUFFER_SIZE"] = "1024";
-  accept_env["LOOP_COUNT"] = "128";
-  accept_env["EXPECT_SIZE"] = "131072";
-  int server_pid =
-      host2->addApplication<TestTransfer_Accept>(*host2, accept_env);
-
-  host2->launchApplication(server_pid);
-  host1->launchApplication(client_pid);
-
-  this->runTest();
-}
-
-/**
- * Data direction: Server -> Client.
- *
- * Same as `TestTransfer_Connect_Send_EOF` but the data direction is changed.
- */
-TEST_F(TestEnv_Any, TestTransfer_Connect_Recv_EOF) {
-  std::unordered_map<std::string, std::string> accept_env;
-  std::unordered_map<std::string, std::string> connect_env;
-
-  int seed = rand();
-  accept_env["RANDOM_SEED"] = seed;
-  connect_env["RANDOM_SEED"] = seed;
-
-  ipv4_t ip1 = host1->getIPAddr(0).value();
-  ipv4_t ip2 = host2->getIPAddr(0).value();
-
-  char str_buffer[128];
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-           ip1[2], ip1[3]);
-  std::string host1_ip(str_buffer);
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-           ip2[2], ip2[3]);
-  std::string host2_ip(str_buffer);
-
-  accept_env["LISTEN_ADDR"] = "0.0.0.0";
-  accept_env["LISTEN_PORT"] = "9999";
-  accept_env["BACKLOG"] = "1";
-  accept_env["LISTEN_TIME"] = "0";
-  accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
-  accept_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_PORT"] = "9999";
-  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
-  connect_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_ADDR"] = host2_ip;
-  connect_env["BUFFER_SIZE"] = "1024";
-  connect_env["LOOP_COUNT"] = "0";
-  connect_env["SENDER"] = "0";
-  connect_env["EXPECT_SIZE"] = "131072";
-  int client_pid =
-      host1->addApplication<TestTransfer_Connect>(*host1, connect_env);
-
-  accept_env["SENDER"] = "1";
-  accept_env["BUFFER_SIZE"] = "1024";
-  accept_env["LOOP_COUNT"] = "128";
-  accept_env["EXPECT_SIZE"] = "131072";
-  int server_pid =
-      host2->addApplication<TestTransfer_Accept>(*host2, accept_env);
-
-  host2->launchApplication(server_pid);
-  host1->launchApplication(client_pid);
-
-  this->runTest();
-}
-
-/**
- * Data direction: Server -> Client.
- *
- * In this case, the server uses a very small buffer (128B) while the client
- * sends large packets (>=512B).  Assuming that a packet has 512B data, it will
- * be used to fill the read buffer of 4 consequent `read` system calls.
- */
-TEST_F(TestEnv_Any, TestTransfer_Connect_Recv_SmallBuffer1) {
-  std::unordered_map<std::string, std::string> accept_env;
-  std::unordered_map<std::string, std::string> connect_env;
-
-  int seed = rand();
-  accept_env["RANDOM_SEED"] = seed;
-  connect_env["RANDOM_SEED"] = seed;
-
-  ipv4_t ip1 = host1->getIPAddr(0).value();
-  ipv4_t ip2 = host2->getIPAddr(0).value();
-
-  char str_buffer[128];
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-           ip1[2], ip1[3]);
-  std::string host1_ip(str_buffer);
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-           ip2[2], ip2[3]);
-  std::string host2_ip(str_buffer);
-
-  accept_env["LISTEN_ADDR"] = "0.0.0.0";
-  accept_env["LISTEN_PORT"] = "9999";
-  accept_env["BACKLOG"] = "1";
-  accept_env["LISTEN_TIME"] = "0";
-  accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
-  accept_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_PORT"] = "9999";
-  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
-  connect_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_ADDR"] = host2_ip;
-  connect_env["BUFFER_SIZE"] = "128";
-  connect_env["LOOP_COUNT"] = "0";
-  connect_env["SENDER"] = "0";
-  connect_env["EXPECT_SIZE"] = "131072";
-  int client_pid =
-      host1->addApplication<TestTransfer_Connect>(*host1, connect_env);
-
-  accept_env["SENDER"] = "1";
-  accept_env["BUFFER_SIZE"] = "1024";
-  accept_env["LOOP_COUNT"] = "128";
-  accept_env["EXPECT_SIZE"] = "131072";
-  int server_pid =
-      host2->addApplication<TestTransfer_Accept>(*host2, accept_env);
-
-  host2->launchApplication(server_pid);
-  host1->launchApplication(client_pid);
-
-  this->runTest();
-}
-
-/**
- * Data direction: Server -> Client.
- *
- * In this case, the server uses an extreamly small buffer (67B). This is only 3
- * bytes larger than the minimum size of the ethernet frame.  Unlike the
- * previous example, the small buffer size no longer divides the size of the
- * large client buffer without remainders.
- */
-TEST_F(TestEnv_Any, TestTransfer_Connect_Recv_SmallBuffer2) {
-  std::unordered_map<std::string, std::string> accept_env;
-  std::unordered_map<std::string, std::string> connect_env;
-
-  int seed = rand();
-  accept_env["RANDOM_SEED"] = seed;
-  connect_env["RANDOM_SEED"] = seed;
-
-  ipv4_t ip1 = host1->getIPAddr(0).value();
-  ipv4_t ip2 = host2->getIPAddr(0).value();
-
-  char str_buffer[128];
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-           ip1[2], ip1[3]);
-  std::string host1_ip(str_buffer);
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-           ip2[2], ip2[3]);
-  std::string host2_ip(str_buffer);
-
-  accept_env["LISTEN_ADDR"] = "0.0.0.0";
-  accept_env["LISTEN_PORT"] = "9999";
-  accept_env["BACKLOG"] = "1";
-  accept_env["LISTEN_TIME"] = "0";
-  accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
-  accept_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_PORT"] = "9999";
-  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
-  connect_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_ADDR"] = host2_ip;
-  connect_env["BUFFER_SIZE"] = "67";
-  connect_env["LOOP_COUNT"] = "0";
-  connect_env["SENDER"] = "0";
-  connect_env["EXPECT_SIZE"] = "64819";
-  int client_pid =
-      host1->addApplication<TestTransfer_Connect>(*host1, connect_env);
-
-  accept_env["SENDER"] = "1";
-  accept_env["BUFFER_SIZE"] = "53";
-  accept_env["LOOP_COUNT"] = "1223";
-  accept_env["EXPECT_SIZE"] = "64819";
-  int server_pid =
-      host2->addApplication<TestTransfer_Accept>(*host2, accept_env);
-
-  host2->launchApplication(server_pid);
-  host1->launchApplication(client_pid);
-
-  this->runTest();
-}
-
-/**
- * Exactly as same as the `TestTransfer_Connect_Recv_Symmetric`
- */
-TEST_F(TestEnv_Any, TestTransfer_Accept_Send_Symmetric) {
-  std::unordered_map<std::string, std::string> accept_env;
-  std::unordered_map<std::string, std::string> connect_env;
-
-  int seed = rand();
-  accept_env["RANDOM_SEED"] = seed;
-  connect_env["RANDOM_SEED"] = seed;
-
-  ipv4_t ip1 = host1->getIPAddr(0).value();
-  ipv4_t ip2 = host2->getIPAddr(0).value();
-
-  char str_buffer[128];
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-           ip1[2], ip1[3]);
-  std::string host1_ip(str_buffer);
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-           ip2[2], ip2[3]);
-  std::string host2_ip(str_buffer);
-
-  accept_env["LISTEN_ADDR"] = "0.0.0.0";
-  accept_env["LISTEN_PORT"] = "9999";
-  accept_env["BACKLOG"] = "1";
-  accept_env["LISTEN_TIME"] = "0";
-  accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
-  accept_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_PORT"] = "9999";
-  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
-  connect_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  accept_env["BUFFER_SIZE"] = "1024";
-  accept_env["LOOP_COUNT"] = "128";
-  accept_env["SENDER"] = "1";
-  accept_env["EXPECT_SIZE"] = "131072";
-  int server_pid =
-      host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
-
-  connect_env["CONNECT_ADDR"] = host1_ip;
-  connect_env["SENDER"] = "0";
-  connect_env["BUFFER_SIZE"] = "1024";
-  connect_env["LOOP_COUNT"] = "128";
-  connect_env["EXPECT_SIZE"] = "131072";
-  int client_pid =
-      host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
-
-  host1->launchApplication(server_pid);
-  host2->launchApplication(client_pid);
-
-  this->runTest();
-}
-
-/**
- * In `TestTransfer_Connect_Recv_EOF` test, the client sends the EOF signal.  In
- * this test, the server sends the EOF signal.
- */
-TEST_F(TestEnv_Any, TestTransfer_Accept_Send_EOF) {
-  std::unordered_map<std::string, std::string> accept_env;
-  std::unordered_map<std::string, std::string> connect_env;
-
-  int seed = rand();
-  accept_env["RANDOM_SEED"] = seed;
-  connect_env["RANDOM_SEED"] = seed;
-
-  ipv4_t ip1 = host1->getIPAddr(0).value();
-  ipv4_t ip2 = host2->getIPAddr(0).value();
-
-  char str_buffer[128];
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-           ip1[2], ip1[3]);
-  std::string host1_ip(str_buffer);
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-           ip2[2], ip2[3]);
-  std::string host2_ip(str_buffer);
-
-  accept_env["LISTEN_ADDR"] = "0.0.0.0";
-  accept_env["LISTEN_PORT"] = "9999";
-  accept_env["BACKLOG"] = "1";
-  accept_env["LISTEN_TIME"] = "0";
-  accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
-  accept_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_PORT"] = "9999";
-  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
-  connect_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  accept_env["BUFFER_SIZE"] = "1024";
-  accept_env["LOOP_COUNT"] = "128";
-  accept_env["SENDER"] = "1";
-  accept_env["EXPECT_SIZE"] = "131072";
-  int server_pid =
-      host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
-
-  connect_env["CONNECT_ADDR"] = host1_ip;
-  connect_env["SENDER"] = "0";
-  connect_env["BUFFER_SIZE"] = "1024";
-  connect_env["LOOP_COUNT"] = "0";
-  connect_env["EXPECT_SIZE"] = "131072";
-  int client_pid =
-      host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
-
-  host1->launchApplication(server_pid);
-  host2->launchApplication(client_pid);
-
-  this->runTest();
-}
-
-/**
- * Same as the `TestTransfer_Connect_Send_Symmetric` test.
- */
-TEST_F(TestEnv_Any, TestTransfer_Accept_Recv_Symmetric) {
-  std::unordered_map<std::string, std::string> accept_env;
-  std::unordered_map<std::string, std::string> connect_env;
-
-  int seed = rand();
-  accept_env["RANDOM_SEED"] = seed;
-  connect_env["RANDOM_SEED"] = seed;
-
-  ipv4_t ip1 = host1->getIPAddr(0).value();
-  ipv4_t ip2 = host2->getIPAddr(0).value();
-
-  char str_buffer[128];
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-           ip1[2], ip1[3]);
-  std::string host1_ip(str_buffer);
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-           ip2[2], ip2[3]);
-  std::string host2_ip(str_buffer);
-
-  accept_env["LISTEN_ADDR"] = "0.0.0.0";
-  accept_env["LISTEN_PORT"] = "9999";
-  accept_env["BACKLOG"] = "1";
-  accept_env["LISTEN_TIME"] = "0";
-  accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
-  accept_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_PORT"] = "9999";
-  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
-  connect_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  accept_env["BUFFER_SIZE"] = "1024";
-  accept_env["LOOP_COUNT"] = "128";
-  accept_env["SENDER"] = "0";
-  accept_env["EXPECT_SIZE"] = "131072";
-  int server_pid =
-      host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
-
-  connect_env["CONNECT_ADDR"] = host1_ip;
-  connect_env["SENDER"] = "1";
-  connect_env["BUFFER_SIZE"] = "1024";
-  connect_env["LOOP_COUNT"] = "128";
-  connect_env["EXPECT_SIZE"] = "131072";
-  int client_pid =
-      host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
-
-  host1->launchApplication(server_pid);
-  host2->launchApplication(client_pid);
-
-  this->runTest();
-}
-
-/**
- * In `TestTransfer_Connect_Send_EOF` test, the client sends the EOF signal.  In
- * this test, the server sends the EOF signal.
- */
-TEST_F(TestEnv_Any, TestTransfer_Accept_Recv_EOF) {
-  std::unordered_map<std::string, std::string> accept_env;
-  std::unordered_map<std::string, std::string> connect_env;
-
-  int seed = rand();
-  accept_env["RANDOM_SEED"] = seed;
-  connect_env["RANDOM_SEED"] = seed;
-
-  ipv4_t ip1 = host1->getIPAddr(0).value();
-  ipv4_t ip2 = host2->getIPAddr(0).value();
-
-  char str_buffer[128];
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-           ip1[2], ip1[3]);
-  std::string host1_ip(str_buffer);
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-           ip2[2], ip2[3]);
-  std::string host2_ip(str_buffer);
-
-  accept_env["LISTEN_ADDR"] = "0.0.0.0";
-  accept_env["LISTEN_PORT"] = "9999";
-  accept_env["BACKLOG"] = "1";
-  accept_env["LISTEN_TIME"] = "0";
-  accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
-  accept_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_PORT"] = "9999";
-  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
-  connect_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  accept_env["BUFFER_SIZE"] = "1024";
-  accept_env["LOOP_COUNT"] = "0";
-  accept_env["SENDER"] = "0";
-  accept_env["EXPECT_SIZE"] = "131072";
-  int server_pid =
-      host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
-
-  connect_env["CONNECT_ADDR"] = host1_ip;
-  connect_env["SENDER"] = "1";
-  connect_env["BUFFER_SIZE"] = "1024";
-  connect_env["LOOP_COUNT"] = "128";
-  connect_env["EXPECT_SIZE"] = "131072";
-  int client_pid =
-      host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
-
-  host1->launchApplication(server_pid);
-  host2->launchApplication(client_pid);
-
-  this->runTest();
-}
-
-/**
- * Same as the `TestTransfer_Connect_Recv_SmallBuffer1` test except for the data
- * transfer direction.
- */
-TEST_F(TestEnv_Any, TestTransfer_Accept_Recv_SmallBuffer1) {
-  std::unordered_map<std::string, std::string> accept_env;
-  std::unordered_map<std::string, std::string> connect_env;
-
-  int seed = rand();
-  accept_env["RANDOM_SEED"] = seed;
-  connect_env["RANDOM_SEED"] = seed;
-
-  ipv4_t ip1 = host1->getIPAddr(0).value();
-  ipv4_t ip2 = host2->getIPAddr(0).value();
-
-  char str_buffer[128];
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-           ip1[2], ip1[3]);
-  std::string host1_ip(str_buffer);
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-           ip2[2], ip2[3]);
-  std::string host2_ip(str_buffer);
-
-  accept_env["LISTEN_ADDR"] = "0.0.0.0";
-  accept_env["LISTEN_PORT"] = "9999";
-  accept_env["BACKLOG"] = "1";
-  accept_env["LISTEN_TIME"] = "0";
-  accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
-  accept_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_PORT"] = "9999";
-  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
-  connect_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  accept_env["BUFFER_SIZE"] = "128";
-  accept_env["LOOP_COUNT"] = "0";
-  accept_env["SENDER"] = "0";
-  accept_env["EXPECT_SIZE"] = "131072";
-  int server_pid =
-      host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
-
-  connect_env["CONNECT_ADDR"] = host1_ip;
-  connect_env["SENDER"] = "1";
-  connect_env["BUFFER_SIZE"] = "1024";
-  connect_env["LOOP_COUNT"] = "128";
-  connect_env["EXPECT_SIZE"] = "131072";
-  int client_pid =
-      host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
-
-  host1->launchApplication(server_pid);
-  host2->launchApplication(client_pid);
-
-  this->runTest();
-}
-
-/**
- * Same as the `TestTransfer_Accept_Recv_SmallBuffer2` test except for the data
- * transfer direction.
- */
-TEST_F(TestEnv_Any, TestTransfer_Accept_Recv_SmallBuffer2) {
-  std::unordered_map<std::string, std::string> accept_env;
-  std::unordered_map<std::string, std::string> connect_env;
-
-  int seed = rand();
-  accept_env["RANDOM_SEED"] = seed;
-  connect_env["RANDOM_SEED"] = seed;
-
-  ipv4_t ip1 = host1->getIPAddr(0).value();
-  ipv4_t ip2 = host2->getIPAddr(0).value();
-
-  char str_buffer[128];
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
-           ip1[2], ip1[3]);
-  std::string host1_ip(str_buffer);
-  snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
-           ip2[2], ip2[3]);
-  std::string host2_ip(str_buffer);
-
-  accept_env["LISTEN_ADDR"] = "0.0.0.0";
-  accept_env["LISTEN_PORT"] = "9999";
-  accept_env["BACKLOG"] = "1";
-  accept_env["LISTEN_TIME"] = "0";
-  accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
-  accept_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  connect_env["CONNECT_PORT"] = "9999";
-  connect_env["CONNECT_TIME"] = TimeUtil::printTime(
-      TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
-  connect_env["START_TIME"] =
-      TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
-
-  accept_env["BUFFER_SIZE"] = "67";
-  accept_env["LOOP_COUNT"] = "0";
-  accept_env["SENDER"] = "0";
-  accept_env["EXPECT_SIZE"] = "64819";
-  int server_pid =
-      host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
-
-  connect_env["CONNECT_ADDR"] = host1_ip;
-  connect_env["SENDER"] = "1";
-  connect_env["BUFFER_SIZE"] = "53";
-  connect_env["LOOP_COUNT"] = "1223";
-  connect_env["EXPECT_SIZE"] = "64819";
-  int client_pid =
-      host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
-
-  host1->launchApplication(server_pid);
-  host2->launchApplication(client_pid);
-
-  this->runTest();
-}
+// TEST_F(TestEnv_Any, TestTransfer_Connect_Send_EOF) {
+//   std::unordered_map<std::string, std::string> accept_env;
+//   std::unordered_map<std::string, std::string> connect_env;
+
+//   int seed = rand();
+//   accept_env["RANDOM_SEED"] = seed;
+//   connect_env["RANDOM_SEED"] = seed;
+
+//   ipv4_t ip1 = host1->getIPAddr(0).value();
+//   ipv4_t ip2 = host2->getIPAddr(0).value();
+
+//   char str_buffer[128];
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+//            ip1[2], ip1[3]);
+//   std::string host1_ip(str_buffer);
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+//            ip2[2], ip2[3]);
+//   std::string host2_ip(str_buffer);
+
+//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
+//   accept_env["LISTEN_PORT"] = "9999";
+//   accept_env["BACKLOG"] = "1";
+//   accept_env["LISTEN_TIME"] = "0";
+//   accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
+//   accept_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_PORT"] = "9999";
+//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
+//   connect_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_ADDR"] = host2_ip;
+//   connect_env["BUFFER_SIZE"] = "1024";
+//   connect_env["LOOP_COUNT"] = "128";
+//   connect_env["SENDER"] = "1";
+//   connect_env["EXPECT_SIZE"] = "131072";
+//   int client_pid =
+//       host1->addApplication<TestTransfer_Connect>(*host1, connect_env);
+
+//   accept_env["SENDER"] = "0";
+//   accept_env["BUFFER_SIZE"] = "1024";
+//   accept_env["LOOP_COUNT"] = "0";
+//   accept_env["EXPECT_SIZE"] = "131072";
+//   int server_pid =
+//       host2->addApplication<TestTransfer_Accept>(*host2, accept_env);
+
+//   host2->launchApplication(server_pid);
+//   host1->launchApplication(client_pid);
+
+//   this->runTest();
+// }
+
+// /**
+//  * Data direction: Server -> Client.
+//  *
+//  * Same as `TestTransfer_Connect_Send_Symmetric` but the data direction is
+//  * changed.
+//  */
+// TEST_F(TestEnv_Any, TestTransfer_Connect_Recv_Symmetric) {
+//   std::unordered_map<std::string, std::string> accept_env;
+//   std::unordered_map<std::string, std::string> connect_env;
+
+//   int seed = rand();
+//   accept_env["RANDOM_SEED"] = seed;
+//   connect_env["RANDOM_SEED"] = seed;
+
+//   ipv4_t ip1 = host1->getIPAddr(0).value();
+//   ipv4_t ip2 = host2->getIPAddr(0).value();
+
+//   char str_buffer[128];
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+//            ip1[2], ip1[3]);
+//   std::string host1_ip(str_buffer);
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+//            ip2[2], ip2[3]);
+//   std::string host2_ip(str_buffer);
+
+//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
+//   accept_env["LISTEN_PORT"] = "9999";
+//   accept_env["BACKLOG"] = "1";
+//   accept_env["LISTEN_TIME"] = "0";
+//   accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
+//   accept_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_PORT"] = "9999";
+//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
+//   connect_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_ADDR"] = host2_ip;
+//   connect_env["BUFFER_SIZE"] = "1024";
+//   connect_env["LOOP_COUNT"] = "128";
+//   connect_env["SENDER"] = "0";
+//   connect_env["EXPECT_SIZE"] = "131072";
+//   int client_pid =
+//       host1->addApplication<TestTransfer_Connect>(*host1, connect_env);
+
+//   accept_env["SENDER"] = "1";
+//   accept_env["BUFFER_SIZE"] = "1024";
+//   accept_env["LOOP_COUNT"] = "128";
+//   accept_env["EXPECT_SIZE"] = "131072";
+//   int server_pid =
+//       host2->addApplication<TestTransfer_Accept>(*host2, accept_env);
+
+//   host2->launchApplication(server_pid);
+//   host1->launchApplication(client_pid);
+
+//   this->runTest();
+// }
+
+// /**
+//  * Data direction: Server -> Client.
+//  *
+//  * Same as `TestTransfer_Connect_Send_EOF` but the data direction is changed.
+//  */
+// TEST_F(TestEnv_Any, TestTransfer_Connect_Recv_EOF) {
+//   std::unordered_map<std::string, std::string> accept_env;
+//   std::unordered_map<std::string, std::string> connect_env;
+
+//   int seed = rand();
+//   accept_env["RANDOM_SEED"] = seed;
+//   connect_env["RANDOM_SEED"] = seed;
+
+//   ipv4_t ip1 = host1->getIPAddr(0).value();
+//   ipv4_t ip2 = host2->getIPAddr(0).value();
+
+//   char str_buffer[128];
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+//            ip1[2], ip1[3]);
+//   std::string host1_ip(str_buffer);
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+//            ip2[2], ip2[3]);
+//   std::string host2_ip(str_buffer);
+
+//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
+//   accept_env["LISTEN_PORT"] = "9999";
+//   accept_env["BACKLOG"] = "1";
+//   accept_env["LISTEN_TIME"] = "0";
+//   accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
+//   accept_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_PORT"] = "9999";
+//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
+//   connect_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_ADDR"] = host2_ip;
+//   connect_env["BUFFER_SIZE"] = "1024";
+//   connect_env["LOOP_COUNT"] = "0";
+//   connect_env["SENDER"] = "0";
+//   connect_env["EXPECT_SIZE"] = "131072";
+//   int client_pid =
+//       host1->addApplication<TestTransfer_Connect>(*host1, connect_env);
+
+//   accept_env["SENDER"] = "1";
+//   accept_env["BUFFER_SIZE"] = "1024";
+//   accept_env["LOOP_COUNT"] = "128";
+//   accept_env["EXPECT_SIZE"] = "131072";
+//   int server_pid =
+//       host2->addApplication<TestTransfer_Accept>(*host2, accept_env);
+
+//   host2->launchApplication(server_pid);
+//   host1->launchApplication(client_pid);
+
+//   this->runTest();
+// }
+
+// /**
+//  * Data direction: Server -> Client.
+//  *
+//  * In this case, the server uses a very small buffer (128B) while the client
+//  * sends large packets (>=512B).  Assuming that a packet has 512B data, it will
+//  * be used to fill the read buffer of 4 consequent `read` system calls.
+//  */
+// TEST_F(TestEnv_Any, TestTransfer_Connect_Recv_SmallBuffer1) {
+//   std::unordered_map<std::string, std::string> accept_env;
+//   std::unordered_map<std::string, std::string> connect_env;
+
+//   int seed = rand();
+//   accept_env["RANDOM_SEED"] = seed;
+//   connect_env["RANDOM_SEED"] = seed;
+
+//   ipv4_t ip1 = host1->getIPAddr(0).value();
+//   ipv4_t ip2 = host2->getIPAddr(0).value();
+
+//   char str_buffer[128];
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+//            ip1[2], ip1[3]);
+//   std::string host1_ip(str_buffer);
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+//            ip2[2], ip2[3]);
+//   std::string host2_ip(str_buffer);
+
+//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
+//   accept_env["LISTEN_PORT"] = "9999";
+//   accept_env["BACKLOG"] = "1";
+//   accept_env["LISTEN_TIME"] = "0";
+//   accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
+//   accept_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_PORT"] = "9999";
+//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
+//   connect_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_ADDR"] = host2_ip;
+//   connect_env["BUFFER_SIZE"] = "128";
+//   connect_env["LOOP_COUNT"] = "0";
+//   connect_env["SENDER"] = "0";
+//   connect_env["EXPECT_SIZE"] = "131072";
+//   int client_pid =
+//       host1->addApplication<TestTransfer_Connect>(*host1, connect_env);
+
+//   accept_env["SENDER"] = "1";
+//   accept_env["BUFFER_SIZE"] = "1024";
+//   accept_env["LOOP_COUNT"] = "128";
+//   accept_env["EXPECT_SIZE"] = "131072";
+//   int server_pid =
+//       host2->addApplication<TestTransfer_Accept>(*host2, accept_env);
+
+//   host2->launchApplication(server_pid);
+//   host1->launchApplication(client_pid);
+
+//   this->runTest();
+// }
+
+// /**
+//  * Data direction: Server -> Client.
+//  *
+//  * In this case, the server uses an extreamly small buffer (67B). This is only 3
+//  * bytes larger than the minimum size of the ethernet frame.  Unlike the
+//  * previous example, the small buffer size no longer divides the size of the
+//  * large client buffer without remainders.
+//  */
+// TEST_F(TestEnv_Any, TestTransfer_Connect_Recv_SmallBuffer2) {
+//   std::unordered_map<std::string, std::string> accept_env;
+//   std::unordered_map<std::string, std::string> connect_env;
+
+//   int seed = rand();
+//   accept_env["RANDOM_SEED"] = seed;
+//   connect_env["RANDOM_SEED"] = seed;
+
+//   ipv4_t ip1 = host1->getIPAddr(0).value();
+//   ipv4_t ip2 = host2->getIPAddr(0).value();
+
+//   char str_buffer[128];
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+//            ip1[2], ip1[3]);
+//   std::string host1_ip(str_buffer);
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+//            ip2[2], ip2[3]);
+//   std::string host2_ip(str_buffer);
+
+//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
+//   accept_env["LISTEN_PORT"] = "9999";
+//   accept_env["BACKLOG"] = "1";
+//   accept_env["LISTEN_TIME"] = "0";
+//   accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
+//   accept_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_PORT"] = "9999";
+//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
+//   connect_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_ADDR"] = host2_ip;
+//   connect_env["BUFFER_SIZE"] = "67";
+//   connect_env["LOOP_COUNT"] = "0";
+//   connect_env["SENDER"] = "0";
+//   connect_env["EXPECT_SIZE"] = "64819";
+//   int client_pid =
+//       host1->addApplication<TestTransfer_Connect>(*host1, connect_env);
+
+//   accept_env["SENDER"] = "1";
+//   accept_env["BUFFER_SIZE"] = "53";
+//   accept_env["LOOP_COUNT"] = "1223";
+//   accept_env["EXPECT_SIZE"] = "64819";
+//   int server_pid =
+//       host2->addApplication<TestTransfer_Accept>(*host2, accept_env);
+
+//   host2->launchApplication(server_pid);
+//   host1->launchApplication(client_pid);
+
+//   this->runTest();
+// }
+
+// /**
+//  * Exactly as same as the `TestTransfer_Connect_Recv_Symmetric`
+//  */
+// TEST_F(TestEnv_Any, TestTransfer_Accept_Send_Symmetric) {
+//   std::unordered_map<std::string, std::string> accept_env;
+//   std::unordered_map<std::string, std::string> connect_env;
+
+//   int seed = rand();
+//   accept_env["RANDOM_SEED"] = seed;
+//   connect_env["RANDOM_SEED"] = seed;
+
+//   ipv4_t ip1 = host1->getIPAddr(0).value();
+//   ipv4_t ip2 = host2->getIPAddr(0).value();
+
+//   char str_buffer[128];
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+//            ip1[2], ip1[3]);
+//   std::string host1_ip(str_buffer);
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+//            ip2[2], ip2[3]);
+//   std::string host2_ip(str_buffer);
+
+//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
+//   accept_env["LISTEN_PORT"] = "9999";
+//   accept_env["BACKLOG"] = "1";
+//   accept_env["LISTEN_TIME"] = "0";
+//   accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
+//   accept_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_PORT"] = "9999";
+//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
+//   connect_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   accept_env["BUFFER_SIZE"] = "1024";
+//   accept_env["LOOP_COUNT"] = "128";
+//   accept_env["SENDER"] = "1";
+//   accept_env["EXPECT_SIZE"] = "131072";
+//   int server_pid =
+//       host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
+
+//   connect_env["CONNECT_ADDR"] = host1_ip;
+//   connect_env["SENDER"] = "0";
+//   connect_env["BUFFER_SIZE"] = "1024";
+//   connect_env["LOOP_COUNT"] = "128";
+//   connect_env["EXPECT_SIZE"] = "131072";
+//   int client_pid =
+//       host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
+
+//   host1->launchApplication(server_pid);
+//   host2->launchApplication(client_pid);
+
+//   this->runTest();
+// }
+
+// /**
+//  * In `TestTransfer_Connect_Recv_EOF` test, the client sends the EOF signal.  In
+//  * this test, the server sends the EOF signal.
+//  */
+// TEST_F(TestEnv_Any, TestTransfer_Accept_Send_EOF) {
+//   std::unordered_map<std::string, std::string> accept_env;
+//   std::unordered_map<std::string, std::string> connect_env;
+
+//   int seed = rand();
+//   accept_env["RANDOM_SEED"] = seed;
+//   connect_env["RANDOM_SEED"] = seed;
+
+//   ipv4_t ip1 = host1->getIPAddr(0).value();
+//   ipv4_t ip2 = host2->getIPAddr(0).value();
+
+//   char str_buffer[128];
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+//            ip1[2], ip1[3]);
+//   std::string host1_ip(str_buffer);
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+//            ip2[2], ip2[3]);
+//   std::string host2_ip(str_buffer);
+
+//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
+//   accept_env["LISTEN_PORT"] = "9999";
+//   accept_env["BACKLOG"] = "1";
+//   accept_env["LISTEN_TIME"] = "0";
+//   accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
+//   accept_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_PORT"] = "9999";
+//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
+//   connect_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   accept_env["BUFFER_SIZE"] = "1024";
+//   accept_env["LOOP_COUNT"] = "128";
+//   accept_env["SENDER"] = "1";
+//   accept_env["EXPECT_SIZE"] = "131072";
+//   int server_pid =
+//       host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
+
+//   connect_env["CONNECT_ADDR"] = host1_ip;
+//   connect_env["SENDER"] = "0";
+//   connect_env["BUFFER_SIZE"] = "1024";
+//   connect_env["LOOP_COUNT"] = "0";
+//   connect_env["EXPECT_SIZE"] = "131072";
+//   int client_pid =
+//       host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
+
+//   host1->launchApplication(server_pid);
+//   host2->launchApplication(client_pid);
+
+//   this->runTest();
+// }
+
+// /**
+//  * Same as the `TestTransfer_Connect_Send_Symmetric` test.
+//  */
+// TEST_F(TestEnv_Any, TestTransfer_Accept_Recv_Symmetric) {
+//   std::unordered_map<std::string, std::string> accept_env;
+//   std::unordered_map<std::string, std::string> connect_env;
+
+//   int seed = rand();
+//   accept_env["RANDOM_SEED"] = seed;
+//   connect_env["RANDOM_SEED"] = seed;
+
+//   ipv4_t ip1 = host1->getIPAddr(0).value();
+//   ipv4_t ip2 = host2->getIPAddr(0).value();
+
+//   char str_buffer[128];
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+//            ip1[2], ip1[3]);
+//   std::string host1_ip(str_buffer);
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+//            ip2[2], ip2[3]);
+//   std::string host2_ip(str_buffer);
+
+//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
+//   accept_env["LISTEN_PORT"] = "9999";
+//   accept_env["BACKLOG"] = "1";
+//   accept_env["LISTEN_TIME"] = "0";
+//   accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
+//   accept_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_PORT"] = "9999";
+//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
+//   connect_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   accept_env["BUFFER_SIZE"] = "1024";
+//   accept_env["LOOP_COUNT"] = "128";
+//   accept_env["SENDER"] = "0";
+//   accept_env["EXPECT_SIZE"] = "131072";
+//   int server_pid =
+//       host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
+
+//   connect_env["CONNECT_ADDR"] = host1_ip;
+//   connect_env["SENDER"] = "1";
+//   connect_env["BUFFER_SIZE"] = "1024";
+//   connect_env["LOOP_COUNT"] = "128";
+//   connect_env["EXPECT_SIZE"] = "131072";
+//   int client_pid =
+//       host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
+
+//   host1->launchApplication(server_pid);
+//   host2->launchApplication(client_pid);
+
+//   this->runTest();
+// }
+
+// /**
+//  * In `TestTransfer_Connect_Send_EOF` test, the client sends the EOF signal.  In
+//  * this test, the server sends the EOF signal.
+//  */
+// TEST_F(TestEnv_Any, TestTransfer_Accept_Recv_EOF) {
+//   std::unordered_map<std::string, std::string> accept_env;
+//   std::unordered_map<std::string, std::string> connect_env;
+
+//   int seed = rand();
+//   accept_env["RANDOM_SEED"] = seed;
+//   connect_env["RANDOM_SEED"] = seed;
+
+//   ipv4_t ip1 = host1->getIPAddr(0).value();
+//   ipv4_t ip2 = host2->getIPAddr(0).value();
+
+//   char str_buffer[128];
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+//            ip1[2], ip1[3]);
+//   std::string host1_ip(str_buffer);
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+//            ip2[2], ip2[3]);
+//   std::string host2_ip(str_buffer);
+
+//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
+//   accept_env["LISTEN_PORT"] = "9999";
+//   accept_env["BACKLOG"] = "1";
+//   accept_env["LISTEN_TIME"] = "0";
+//   accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
+//   accept_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_PORT"] = "9999";
+//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
+//   connect_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   accept_env["BUFFER_SIZE"] = "1024";
+//   accept_env["LOOP_COUNT"] = "0";
+//   accept_env["SENDER"] = "0";
+//   accept_env["EXPECT_SIZE"] = "131072";
+//   int server_pid =
+//       host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
+
+//   connect_env["CONNECT_ADDR"] = host1_ip;
+//   connect_env["SENDER"] = "1";
+//   connect_env["BUFFER_SIZE"] = "1024";
+//   connect_env["LOOP_COUNT"] = "128";
+//   connect_env["EXPECT_SIZE"] = "131072";
+//   int client_pid =
+//       host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
+
+//   host1->launchApplication(server_pid);
+//   host2->launchApplication(client_pid);
+
+//   this->runTest();
+// }
+
+// /**
+//  * Same as the `TestTransfer_Connect_Recv_SmallBuffer1` test except for the data
+//  * transfer direction.
+//  */
+// TEST_F(TestEnv_Any, TestTransfer_Accept_Recv_SmallBuffer1) {
+//   std::unordered_map<std::string, std::string> accept_env;
+//   std::unordered_map<std::string, std::string> connect_env;
+
+//   int seed = rand();
+//   accept_env["RANDOM_SEED"] = seed;
+//   connect_env["RANDOM_SEED"] = seed;
+
+//   ipv4_t ip1 = host1->getIPAddr(0).value();
+//   ipv4_t ip2 = host2->getIPAddr(0).value();
+
+//   char str_buffer[128];
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+//            ip1[2], ip1[3]);
+//   std::string host1_ip(str_buffer);
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+//            ip2[2], ip2[3]);
+//   std::string host2_ip(str_buffer);
+
+//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
+//   accept_env["LISTEN_PORT"] = "9999";
+//   accept_env["BACKLOG"] = "1";
+//   accept_env["LISTEN_TIME"] = "0";
+//   accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
+//   accept_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_PORT"] = "9999";
+//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
+//   connect_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   accept_env["BUFFER_SIZE"] = "128";
+//   accept_env["LOOP_COUNT"] = "0";
+//   accept_env["SENDER"] = "0";
+//   accept_env["EXPECT_SIZE"] = "131072";
+//   int server_pid =
+//       host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
+
+//   connect_env["CONNECT_ADDR"] = host1_ip;
+//   connect_env["SENDER"] = "1";
+//   connect_env["BUFFER_SIZE"] = "1024";
+//   connect_env["LOOP_COUNT"] = "128";
+//   connect_env["EXPECT_SIZE"] = "131072";
+//   int client_pid =
+//       host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
+
+//   host1->launchApplication(server_pid);
+//   host2->launchApplication(client_pid);
+
+//   this->runTest();
+// }
+
+// /**
+//  * Same as the `TestTransfer_Accept_Recv_SmallBuffer2` test except for the data
+//  * transfer direction.
+//  */
+// TEST_F(TestEnv_Any, TestTransfer_Accept_Recv_SmallBuffer2) {
+//   std::unordered_map<std::string, std::string> accept_env;
+//   std::unordered_map<std::string, std::string> connect_env;
+
+//   int seed = rand();
+//   accept_env["RANDOM_SEED"] = seed;
+//   connect_env["RANDOM_SEED"] = seed;
+
+//   ipv4_t ip1 = host1->getIPAddr(0).value();
+//   ipv4_t ip2 = host2->getIPAddr(0).value();
+
+//   char str_buffer[128];
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip1[0], ip1[1],
+//            ip1[2], ip1[3]);
+//   std::string host1_ip(str_buffer);
+//   snprintf(str_buffer, sizeof(str_buffer), "%u.%u.%u.%u", ip2[0], ip2[1],
+//            ip2[2], ip2[3]);
+//   std::string host2_ip(str_buffer);
+
+//   accept_env["LISTEN_ADDR"] = "0.0.0.0";
+//   accept_env["LISTEN_PORT"] = "9999";
+//   accept_env["BACKLOG"] = "1";
+//   accept_env["LISTEN_TIME"] = "0";
+//   accept_env["ACCEPT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(1000, TimeUtil::USEC), TimeUtil::USEC);
+//   accept_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   connect_env["CONNECT_PORT"] = "9999";
+//   connect_env["CONNECT_TIME"] = TimeUtil::printTime(
+//       TimeUtil::makeTime(2000, TimeUtil::USEC), TimeUtil::USEC);
+//   connect_env["START_TIME"] =
+//       TimeUtil::printTime(TimeUtil::makeTime(1, TimeUtil::SEC), TimeUtil::USEC);
+
+//   accept_env["BUFFER_SIZE"] = "67";
+//   accept_env["LOOP_COUNT"] = "0";
+//   accept_env["SENDER"] = "0";
+//   accept_env["EXPECT_SIZE"] = "64819";
+//   int server_pid =
+//       host1->addApplication<TestTransfer_Accept>(*host1, accept_env);
+
+//   connect_env["CONNECT_ADDR"] = host1_ip;
+//   connect_env["SENDER"] = "1";
+//   connect_env["BUFFER_SIZE"] = "53";
+//   connect_env["LOOP_COUNT"] = "1223";
+//   connect_env["EXPECT_SIZE"] = "64819";
+//   int client_pid =
+//       host2->addApplication<TestTransfer_Connect>(*host2, connect_env);
+
+//   host1->launchApplication(server_pid);
+//   host2->launchApplication(client_pid);
+
+//   this->runTest();
+// }

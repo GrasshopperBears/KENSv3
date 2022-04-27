@@ -23,6 +23,11 @@ enum Status {
   SYN_SENT,
   ESTAB
 };
+
+enum ReadStatus {
+  NORMAL,
+  BUFFERFILLED
+};
 // ------------------enums end------------------
 
 // ----------------structs start----------------
@@ -63,9 +68,11 @@ struct UsingResourceInfo {
 
 const int PACKET_OFFSET = 14;
 const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
+const int DATA_OFFSET = SEGMENT_OFFSET + 20;
 const int BUFFER_SIZE = 2048;
 
 char internalBuffer[BUFFER_SIZE];
+enum ReadStatus readStatus = NORMAL;
 
 std::list<sock_info*> sock_table;
 
@@ -307,11 +314,28 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     returnSystemCall(syscallUUID, 0);
     break;
   }
-  case READ:
+  case READ: {
     // this->syscall_read(syscallUUID, pid, std::get<int>(param.params[0]),
     //                    std::get<void *>(param.params[1]),
     //                    std::get<int>(param.params[2]));
+    int fd = std::get<int>(param.params[0]);
+    int readLen = std::get<int>(param.params[2]);
+    sock_info_itr sock_info_itr = find_sock_info(pid, fd);
+
+    if (sock_info_itr == sock_table.end()) {
+      returnSystemCall(syscallUUID, -1);
+      break;
+    }
+    struct sock_info* sock_info = *sock_info_itr;
+
+    if (readStatus == ReadStatus::BUFFERFILLED) {
+      memcpy(std::get<void *>(param.params[1]), internalBuffer, readLen);
+      readStatus = ReadStatus::NORMAL;
+      returnSystemCall(syscallUUID, readLen);
+    }
+
     break;
+  }
   case WRITE: {
     // this->syscall_write(syscallUUID, pid, std::get<int>(param.params[0]),
     //                     std::get<void *>(param.params[1]),
@@ -329,12 +353,12 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     memset(&internalBuffer, 0, sizeof(internalBuffer));
     memcpy(&internalBuffer, std::get<void *>(param.params[1]), writeLen);
 
-    Packet senderPacket (54);
+    Packet senderPacket (1514);
     setPacketSrcDst(&senderPacket, &sock_info->my_sockaddr->sin_addr, &sock_info->my_sockaddr->sin_port,
         &sock_info->peer_sockaddr->sin_addr, &sock_info->peer_sockaddr->sin_port);
     u_int32_t seq_num = getRandomSequnceNumber();
     senderPacket.writeData(SEGMENT_OFFSET + 4, &seq_num, 4);
-
+    senderPacket.writeData(DATA_OFFSET, internalBuffer, 1460);
     set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
 
     sendPacket("IPv4", std::move(senderPacket));
@@ -636,6 +660,7 @@ bool isTargetSock(struct kens_sockaddr_in *sockaddr_in, uint32_t target_ip, uint
 }
 
 void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
+  printf("SYNCACK pkt\n");
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
   Packet response_packet = packet->clone();
@@ -672,6 +697,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
 }
 
 void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
+  printf("SYN pkt\n");
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
   sock_info_itr itr;
@@ -736,6 +762,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 }
 
 void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
+  printf("ACK pkt\n");
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
   Packet packet_to_client = packet->clone();
@@ -795,6 +822,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 }
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
+  printf("packetArrived!\n");
   if (isSynAckPacket(&packet)) {
     return handleSynAckPacket(fromModule, &packet);
   } else if (isSynPacket(&packet)) {
