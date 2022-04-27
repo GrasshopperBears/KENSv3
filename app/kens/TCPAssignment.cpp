@@ -63,6 +63,9 @@ struct UsingResourceInfo {
 
 const int PACKET_OFFSET = 14;
 const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
+const int BUFFER_SIZE = 2048;
+
+char internalBuffer[BUFFER_SIZE];
 
 std::list<sock_info*> sock_table;
 
@@ -309,11 +312,36 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     //                    std::get<void *>(param.params[1]),
     //                    std::get<int>(param.params[2]));
     break;
-  case WRITE:
+  case WRITE: {
     // this->syscall_write(syscallUUID, pid, std::get<int>(param.params[0]),
     //                     std::get<void *>(param.params[1]),
     //                     std::get<int>(param.params[2]));
+    int fd = std::get<int>(param.params[0]);
+    int writeLen = std::get<int>(param.params[2]);
+    sock_info_itr sock_info_itr = find_sock_info(pid, fd);
+
+    if (sock_info_itr == sock_table.end()) {
+      returnSystemCall(syscallUUID, -1);
+      break;
+    }
+    struct sock_info* sock_info = *sock_info_itr;
+
+    memset(&internalBuffer, 0, sizeof(internalBuffer));
+    memcpy(&internalBuffer, std::get<void *>(param.params[1]), writeLen);
+
+    Packet senderPacket (54);
+    setPacketSrcDst(&senderPacket, &sock_info->my_sockaddr->sin_addr, &sock_info->my_sockaddr->sin_port,
+        &sock_info->peer_sockaddr->sin_addr, &sock_info->peer_sockaddr->sin_port);
+    u_int32_t seq_num = getRandomSequnceNumber();
+    senderPacket.writeData(SEGMENT_OFFSET + 4, &seq_num, 4);
+
+    set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
+
+    sendPacket("IPv4", std::move(senderPacket));
+
+    returnSystemCall(syscallUUID, writeLen);
     break;
+  }
   case CONNECT: {
     // this->syscall_connect(
     //     syscallUUID, pid, std::get<int>(param.params[0]),
