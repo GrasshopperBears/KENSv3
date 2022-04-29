@@ -79,6 +79,7 @@ enum BufferStatus sendBufferStatus = NORMAL;
 void *readWaitBuffer;
 UUID readWaitUUID = -1;
 int readWaitLen = -1;
+bool readAllow = false;
 
 std::list<sock_info*> sock_table;
 
@@ -324,7 +325,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     // this->syscall_read(syscallUUID, pid, std::get<int>(param.params[0]),
     //                    std::get<void *>(param.params[1]),
     //                    std::get<int>(param.params[2]));
-    printf("read!\n");
+    printf("read!, cur_recvbuffer: %x\n", receiveBuffer[0]);
     int fd = std::get<int>(param.params[0]);
     int readLen = std::get<int>(param.params[2]);
     sock_info_itr sock_info_itr = find_sock_info(pid, fd);
@@ -336,12 +337,14 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     struct sock_info* sock_info = *sock_info_itr;
 
     if (recvBufferStatus == BufferStatus::BUFFERFILLED) {
+      printf("In read, bufferfilled\n");
       memcpy(std::get<void *>(param.params[1]), receiveBuffer, readLen);
       recvBufferStatus = BufferStatus::NORMAL;
       memset(&receiveBuffer, 0, sizeof(receiveBuffer));
       returnSystemCall(syscallUUID, readLen);
     }
     else {
+      printf("In read, waiting\n");
       recvBufferStatus = BufferStatus::WAITING;
       readWaitBuffer = std::get<void *>(param.params[1]);
       readWaitUUID = syscallUUID;
@@ -778,7 +781,6 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 }
 
 void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
-  printf("ACK pkt, size: %d\n", packet->getSize());
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
   Packet packet_to_client = packet->clone();
@@ -787,11 +789,17 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   sock_info_itr itr;
   accept_queue_itr accept_queue_itr;
   size_t dataSize = -1;
+  u_int32_t seq, ack;
+  packet->readData(SEGMENT_OFFSET+4, &seq, 4);
+  packet->readData(SEGMENT_OFFSET+8, &ack, 4);
+  printf("ACK pkt, size: %u, seq: %u, ack: %u\n", packet->getSize(), ntohl(seq), ntohl(ack));
 
-  if (packet->getSize() > 54) {
+  // Handle Data Packet
+  if (packet->getSize() > 54 && readAllow) {
+    readAllow = false;
     dataSize = packet->getSize() - DATA_OFFSET;
-    packet->readData(DATA_OFFSET, &receiveBuffer, dataSize);
     if (recvBufferStatus == BufferStatus::WAITING) {
+      packet->readData(DATA_OFFSET, &receiveBuffer, dataSize);
       if (dataSize > readWaitLen) {
         memcpy(readWaitBuffer, receiveBuffer, readWaitLen);
         memset(&receiveBuffer, 0, sizeof(receiveBuffer));
@@ -804,12 +812,18 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
         printf("read return!\n");
         returnSystemCall(readWaitUUID, dataSize);
       }
+      recvBufferStatus = BufferStatus::NORMAL;
       readWaitBuffer = NULL;
       readWaitLen = -1;
       readWaitUUID = -1;
     }
-    else {
+    else if (recvBufferStatus == BufferStatus::NORMAL) {
+      printf("Oh it is normal so buffer is filled first\n");
+      packet->readData(DATA_OFFSET, &receiveBuffer, dataSize);
       recvBufferStatus = BufferStatus::BUFFERFILLED;
+    }
+    else if (recvBufferStatus == BufferStatus::BUFFERFILLED) {
+      printf("buffer filled!!\n");
     }
   }
   else {
@@ -866,6 +880,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   else if (parent_sock_info->status == Status::ESTAB) {
     if (dataSize == -1) {
       printf("In handleAckPacket, no data\n");
+      readAllow = true;
       return;
     }
     uint32_t req_seq, req_ack, new_seq, new_ack;
@@ -879,6 +894,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     new_ack = htonl(ntohl(req_seq) + dataSize);
     packet_to_client.writeData(SEGMENT_OFFSET+4, &new_seq, 4);
     packet_to_client.writeData(SEGMENT_OFFSET+8, &new_ack, 4);
+    packet_to_client.writeData(SEGMENT_OFFSET+16, &BUFFER_SIZE, 2);
     set_packet_flags(&packet_to_client, TH_ACK);
     set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
 
