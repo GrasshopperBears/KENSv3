@@ -76,6 +76,9 @@ char receiveBuffer[BUFFER_SIZE];
 char sendBuffer[BUFFER_SIZE];
 enum BufferStatus recvBufferStatus = NORMAL;
 enum BufferStatus sendBufferStatus = NORMAL;
+void *readWaitBuffer;
+UUID readWaitUUID = -1;
+int readWaitLen = -1;
 
 std::list<sock_info*> sock_table;
 
@@ -335,10 +338,14 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     if (recvBufferStatus == BufferStatus::BUFFERFILLED) {
       memcpy(std::get<void *>(param.params[1]), receiveBuffer, readLen);
       recvBufferStatus = BufferStatus::NORMAL;
+      memset(&receiveBuffer, 0, sizeof(receiveBuffer));
       returnSystemCall(syscallUUID, readLen);
     }
     else {
       recvBufferStatus = BufferStatus::WAITING;
+      readWaitBuffer = std::get<void *>(param.params[1]);
+      readWaitUUID = syscallUUID;
+      readWaitLen = readLen;
     }
 
     break;
@@ -356,6 +363,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       returnSystemCall(syscallUUID, -1);
       break;
     }
+    returnSystemCall(syscallUUID, writeLen);
+    
     struct sock_info* sock_info = *sock_info_itr;
 
     memset(&sendBuffer, 0, sizeof(sendBuffer));
@@ -371,7 +380,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     sendPacket("IPv4", std::move(senderPacket));
 
-    returnSystemCall(syscallUUID, writeLen);
     break;
   }
   case CONNECT: {
@@ -668,7 +676,7 @@ bool isTargetSock(struct kens_sockaddr_in *sockaddr_in, uint32_t target_ip, uint
 }
 
 void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
-  printf("SYNCACK pkt\n");
+  printf("SYNCACK pkt, size: %d\n", packet->getSize());
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
   Packet response_packet = packet->clone();
@@ -770,7 +778,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 }
 
 void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
-  printf("ACK pkt\n");
+  printf("ACK pkt, size: %d\n", packet->getSize());
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
   Packet packet_to_client = packet->clone();
@@ -779,6 +787,33 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   sock_info_itr itr;
   accept_queue_itr accept_queue_itr;
 
+  if (packet->getSize() > 54) {
+    size_t dataSize = packet->getSize() - DATA_OFFSET;
+    packet->readData(DATA_OFFSET, &receiveBuffer, dataSize);
+    if (recvBufferStatus == BufferStatus::WAITING) {
+      if (dataSize > readWaitLen) {
+        memcpy(readWaitBuffer, receiveBuffer, readWaitLen);
+        memset(&receiveBuffer, 0, sizeof(receiveBuffer));
+        printf("read return!\n");
+        returnSystemCall(readWaitUUID, readWaitLen);
+      }
+      else {
+        memcpy(readWaitBuffer, receiveBuffer, dataSize);
+        memset(&receiveBuffer, 0, sizeof(receiveBuffer));
+        printf("read return!\n");
+        returnSystemCall(readWaitUUID, dataSize);
+      }
+      readWaitBuffer = NULL;
+      readWaitLen = -1;
+      readWaitUUID = -1;
+    }
+    else {
+      recvBufferStatus = BufferStatus::BUFFERFILLED;
+    }
+  }
+  else {
+    memset(&sendBuffer, 0, sizeof(sendBuffer));
+  }
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
   // First find parent socket by income_dst_ip and income_dst_port
@@ -830,7 +865,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 }
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
-  printf("packetArrived!\n");
+  // printf("packetArrived!\n");
   if (isSynAckPacket(&packet)) {
     return handleSynAckPacket(fromModule, &packet);
   } else if (isSynPacket(&packet)) {
