@@ -24,8 +24,9 @@ enum Status {
   ESTAB
 };
 
-enum ReadStatus {
+enum BufferStatus {
   NORMAL,
+  WAITING,
   BUFFERFILLED
 };
 // ------------------enums end------------------
@@ -71,8 +72,10 @@ const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
 const int DATA_OFFSET = SEGMENT_OFFSET + 20;
 const int BUFFER_SIZE = 2048;
 
-char internalBuffer[BUFFER_SIZE];
-enum ReadStatus readStatus = NORMAL;
+char receiveBuffer[BUFFER_SIZE];
+char sendBuffer[BUFFER_SIZE];
+enum BufferStatus recvBufferStatus = NORMAL;
+enum BufferStatus sendBufferStatus = NORMAL;
 
 std::list<sock_info*> sock_table;
 
@@ -318,6 +321,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     // this->syscall_read(syscallUUID, pid, std::get<int>(param.params[0]),
     //                    std::get<void *>(param.params[1]),
     //                    std::get<int>(param.params[2]));
+    printf("read!\n");
     int fd = std::get<int>(param.params[0]);
     int readLen = std::get<int>(param.params[2]);
     sock_info_itr sock_info_itr = find_sock_info(pid, fd);
@@ -328,10 +332,13 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     }
     struct sock_info* sock_info = *sock_info_itr;
 
-    if (readStatus == ReadStatus::BUFFERFILLED) {
-      memcpy(std::get<void *>(param.params[1]), internalBuffer, readLen);
-      readStatus = ReadStatus::NORMAL;
+    if (recvBufferStatus == BufferStatus::BUFFERFILLED) {
+      memcpy(std::get<void *>(param.params[1]), receiveBuffer, readLen);
+      recvBufferStatus = BufferStatus::NORMAL;
       returnSystemCall(syscallUUID, readLen);
+    }
+    else {
+      recvBufferStatus = BufferStatus::WAITING;
     }
 
     break;
@@ -340,6 +347,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     // this->syscall_write(syscallUUID, pid, std::get<int>(param.params[0]),
     //                     std::get<void *>(param.params[1]),
     //                     std::get<int>(param.params[2]));
+    printf("write!!\n");
     int fd = std::get<int>(param.params[0]);
     int writeLen = std::get<int>(param.params[2]);
     sock_info_itr sock_info_itr = find_sock_info(pid, fd);
@@ -350,15 +358,15 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     }
     struct sock_info* sock_info = *sock_info_itr;
 
-    memset(&internalBuffer, 0, sizeof(internalBuffer));
-    memcpy(&internalBuffer, std::get<void *>(param.params[1]), writeLen);
+    memset(&sendBuffer, 0, sizeof(sendBuffer));
+    memcpy(&sendBuffer, std::get<void *>(param.params[1]), writeLen);
 
     Packet senderPacket (1514);
     setPacketSrcDst(&senderPacket, &sock_info->my_sockaddr->sin_addr, &sock_info->my_sockaddr->sin_port,
         &sock_info->peer_sockaddr->sin_addr, &sock_info->peer_sockaddr->sin_port);
     u_int32_t seq_num = getRandomSequnceNumber();
     senderPacket.writeData(SEGMENT_OFFSET + 4, &seq_num, 4);
-    senderPacket.writeData(DATA_OFFSET, internalBuffer, 1460);
+    senderPacket.writeData(DATA_OFFSET, sendBuffer, 1460);
     set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
 
     sendPacket("IPv4", std::move(senderPacket));
