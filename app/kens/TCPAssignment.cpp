@@ -786,9 +786,10 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   struct AcceptQueueItem *accept_queue_item;
   sock_info_itr itr;
   accept_queue_itr accept_queue_itr;
+  size_t dataSize = -1;
 
   if (packet->getSize() > 54) {
-    size_t dataSize = packet->getSize() - DATA_OFFSET;
+    dataSize = packet->getSize() - DATA_OFFSET;
     packet->readData(DATA_OFFSET, &receiveBuffer, dataSize);
     if (recvBufferStatus == BufferStatus::WAITING) {
       if (dataSize > readWaitLen) {
@@ -860,6 +861,27 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     set_seq_ack_number(packet, &packet_to_client, TH_ACK);
     set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
     
+    sendPacket("IPv4", std::move(packet_to_client));
+  }
+  else if (parent_sock_info->status == Status::ESTAB) {
+    if (dataSize == -1) {
+      printf("In handleAckPacket, no data\n");
+      return;
+    }
+    uint32_t req_seq, req_ack, new_seq, new_ack;
+
+    packet_to_client = Packet (54);
+    packet->readData(SEGMENT_OFFSET+4, &req_seq, 4);
+    packet->readData(SEGMENT_OFFSET+8, &req_ack, 4);
+    setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
+
+    new_seq = req_ack;
+    new_ack = htonl(ntohl(req_seq) + dataSize);
+    packet_to_client.writeData(SEGMENT_OFFSET+4, &new_seq, 4);
+    packet_to_client.writeData(SEGMENT_OFFSET+8, &new_ack, 4);
+    set_packet_flags(&packet_to_client, TH_ACK);
+    set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
+
     sendPacket("IPv4", std::move(packet_to_client));
   }
 }
