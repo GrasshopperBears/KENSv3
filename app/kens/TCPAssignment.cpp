@@ -34,6 +34,7 @@ const int PACKET_OFFSET = 14;
 const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
 const int DATA_OFFSET = SEGMENT_OFFSET + 20;
 const int BUFFER_SIZE = 2048;
+const int MSS = 1500;
 // ----------------structs start----------------
 struct sock_info {
   int pid;
@@ -48,6 +49,8 @@ struct sock_info {
   UUID connect_syscallUUID;
   struct RecvSpace* recvSpace;
   struct SendSpace* sendSpace;
+  uint32_t my_seq_base;
+  uint32_t peer_seq_base;
 };
 
 struct kens_sockaddr_in {
@@ -83,7 +86,9 @@ struct RecvSpace {
 struct SendSpace {
   char buffer[BUFFER_SIZE];
   char* next_write;
-  size_t buffer_remain;
+
+  // TODO: clear on close
+  std::list<Packet*>* sent_packet_list;
 
   // enum BufferStatus bufferStatus = NORMAL;
 };
@@ -287,11 +292,11 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
 void TCPAssignment::writeHandler(UUID syscallUUID, int pid,
                                   SystemCallParameter *param) {
   int fd = std::get<int>(param->params[0]);
-  void* write_buffer = std::get<void *>(param->params[1]);
+  char* write_buffer = (char*) std::get<void *>(param->params[1]);
   int writeLen = std::get<int>(param->params[2]), buffer_ptr_cnt = 0;
   sock_info_itr sock_info_itr = find_sock_info(pid, fd);
   struct sock_info* sock_info = *sock_info_itr;
-  char* buffer_ptr;
+  char *buffer_ptr, *current_buffer_begin;
 
   if (sock_info_itr == sock_table.end() || sock_info->status != Status::ESTAB) {
     free(param);
@@ -301,13 +306,13 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid,
   struct SendSpace* sendSpace = sock_info->sendSpace;
   buffer_ptr = sendSpace->next_write;
 
-  while (buffer_ptr == NULL && buffer_ptr_cnt < writeLen) {
+  while (buffer_ptr[0] == 0 && buffer_ptr_cnt < writeLen) {
     buffer_ptr++;
     buffer_ptr_cnt++;
     if (buffer_ptr >= sendSpace->buffer + BUFFER_SIZE) { buffer_ptr -= BUFFER_SIZE; }
   }
 
-  if (buffer_ptr == sendSpace->next_write) {
+  if (buffer_ptr_cnt < writeLen) {
     // block. buffer is full.
     return;
   }
@@ -324,17 +329,37 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid,
     memcpy(sendSpace->buffer, write_buffer + first, second);
   }
 
+  current_buffer_begin = sendSpace->next_write;
+  sendSpace->next_write = buffer_ptr;
+
+  if (sendSpace->next_write >= sendSpace->buffer + BUFFER_SIZE) {
+    sendSpace->next_write -= BUFFER_SIZE;
+  }
+  free(param);
   returnSystemCall(syscallUUID, writeLen);
 
-  Packet senderPacket (1514);
-  setPacketSrcDst(&senderPacket, &sock_info->my_sockaddr->sin_addr, &sock_info->my_sockaddr->sin_port,
-      &sock_info->peer_sockaddr->sin_addr, &sock_info->peer_sockaddr->sin_port);
-  u_int32_t seq_num = getRandomSequnceNumber();
-  senderPacket.writeData(SEGMENT_OFFSET + 4, &seq_num, 4);
-  senderPacket.writeData(DATA_OFFSET, sock_info->sendSpace->buffer, 1460);
-  set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
+  uint64_t packet_count = writeLen / MSS;
+  if (writeLen % MSS != 0) { packet_count++; }
 
-  sendPacket("IPv4", std::move(senderPacket));
+  for (int i = 0; i < packet_count; i++) {
+    uint64_t packet_size = MSS, buffer_offset = MSS * i;
+    if (writeLen - buffer_offset < MSS) { packet_size = writeLen - buffer_offset; }
+
+    Packet senderPacket(DATA_OFFSET + packet_size);
+    setPacketSrcDst(&senderPacket, &sock_info->my_sockaddr->sin_addr, &sock_info->my_sockaddr->sin_port,
+      &sock_info->peer_sockaddr->sin_addr, &sock_info->peer_sockaddr->sin_port);
+
+    set_seq_number(&senderPacket, sock_info->my_seq_base + buffer_offset);
+    set_ack_number(&senderPacket, sock_info->peer_seq_base);
+
+    senderPacket.writeData(DATA_OFFSET, sock_info->sendSpace->buffer + buffer_offset, packet_size);
+    set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
+
+    Packet clonedPacket = senderPacket.clone();
+    sock_info->sendSpace->sent_packet_list->push_back(&clonedPacket);
+
+    sendPacket("IPv4", std::move(senderPacket));
+  }
 }
 
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
@@ -436,6 +461,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     // this->syscall_write(syscallUUID, pid, std::get<int>(param.params[0]),
     //                     std::get<void *>(param.params[1]),
     //                     std::get<int>(param.params[2]));
+    printf("WRITE called\n");
     SystemCallParameter *param_to_pass = (SystemCallParameter *) malloc(sizeof(SystemCallParameter));
     memcpy(param_to_pass, &param, sizeof(SystemCallParameter));
     writeHandler(syscallUUID, pid, param_to_pass);
@@ -767,9 +793,16 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
       return;
     }
 
+    memset(sock_info->sendSpace->buffer, 0, sizeof(sock_info->sendSpace->buffer));
+    sock_info->sendSpace->next_write = sock_info->sendSpace->buffer;
+    sock_info->sendSpace->sent_packet_list = new std::list<struct Packet*>();
+
     set_packet_flags(&response_packet, TH_ACK);
     set_handshake_seqack_number(packet, &response_packet, TH_ACK);
     set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
+
+    sock_info->my_seq_base = get_seq_number(&response_packet);
+    sock_info->peer_seq_base = get_seq_number(packet);
 
     sendPacket("IPv4", std::move(response_packet));
     returnSystemCall(sock_info->connect_syscallUUID, 0);
@@ -887,6 +920,12 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       printf("In handleSynAckPacket, can't allocate memory\n");
       return;
     }
+    memset(sock_info->sendSpace->buffer, 0, sizeof(sock_info->sendSpace->buffer));
+    sock_info->sendSpace->next_write = sock_info->sendSpace->buffer;
+    sock_info->sendSpace->sent_packet_list = new std::list<struct Packet*>();
+    sock_info->my_seq_base = get_ack_number(packet);
+    sock_info->peer_seq_base = get_seq_number(packet);
+
     parent_sock_info->child_sock_list->push_back(sock_info);
 
     if (accept_queue.size() > 0) {
