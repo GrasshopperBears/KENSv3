@@ -693,7 +693,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   Packet response_packet = packet->clone();
   sock_info_itr itr;
   struct sock_info *sock_info;
-  u_int32_t seq, ack;
+  uint32_t seq, ack;
   packet->readData(SEGMENT_OFFSET+4, &seq, 4);
   packet->readData(SEGMENT_OFFSET+8, &ack, 4);
   printf("SYNACK pkt, size: %zu, seq: %u, ack: %u\n", packet->getSize(), ntohl(seq), ntohl(ack));
@@ -727,8 +727,9 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->recvSpace->waitBuffer = NULL;
     sock_info->recvSpace->waitLen = 0;
     sock_info->recvSpace->waitUUID = -1;
-    packet->readData(SEGMENT_OFFSET+4, &sock_info->recvSpace->expect_seq, 4);
-    packet->readData(SEGMENT_OFFSET+8, &sock_info->recvSpace->expect_ack, 4);
+    sock_info->recvSpace->restSpace = BUFFER_SIZE;
+    sock_info->recvSpace->expect_seq = ntohl(seq);
+    sock_info->recvSpace->expect_ack = ntohl(seq);
     sock_info->recvSpace->expect_seq += 1;
   
     set_packet_flags(&response_packet, TH_ACK);
@@ -879,39 +880,23 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     sendPacket("IPv4", std::move(packet_to_client));
   }
   else if (parent_sock_info->status == Status::ESTAB) {
-    // Handle Data Packet
+    printf("expect seq: %u\n", parent_sock_info->recvSpace->expect_seq);
     dataSize = packet->getSize() - DATA_OFFSET;
+    // No data Packet
     if (dataSize <= 0) {
-      if (parent_sock_info->recvSpace->bufferStatus == BufferStatus::WAITING) {
-        if (parent_sock_info->recvSpace->expect_seq == seq) {
-          packet_to_client = Packet (54);
-          packet->readData(SEGMENT_OFFSET+4, &req_seq, 4);
-          packet->readData(SEGMENT_OFFSET+8, &req_ack, 4);
-          setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
-
-          new_seq = req_ack;
-          new_ack = req_seq;
-          packet_to_client.writeData(SEGMENT_OFFSET+4, &new_seq, 4);
-          packet_to_client.writeData(SEGMENT_OFFSET+8, &new_ack, 4);
-          packet_to_client.writeData(SEGMENT_OFFSET+16, &parent_sock_info->recvSpace->restSpace, 2);
-          set_packet_flags(&packet_to_client, TH_ACK);
-          set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
-
-          sendPacket("IPv4", std::move(packet_to_client));
-          return;
-        }
-      }
+      return;
     }
+    // Data Packet
     else {
       if (parent_sock_info->recvSpace->bufferStatus == BufferStatus::WAITING) {
-        if (parent_sock_info->recvSpace->restSpace < dataSize) {
+        // There is no space for data or its seq number is not expected sequence number. So send packet with rcwd
+        if (parent_sock_info->recvSpace->restSpace < dataSize || htonl(parent_sock_info->recvSpace->expect_seq) != seq) {
+          printf("rest Space: %u, dataSize: %u, is it same seq? %d\n", parent_sock_info->recvSpace->restSpace, dataSize, htonl(parent_sock_info->recvSpace->expect_seq) == seq);
           packet_to_client = Packet (54);
-          packet->readData(SEGMENT_OFFSET+4, &req_seq, 4);
-          packet->readData(SEGMENT_OFFSET+8, &req_ack, 4);
           setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
 
-          new_seq = req_ack;
-          new_ack = req_seq;
+          new_seq = ack;
+          new_ack = htonl(parent_sock_info->recvSpace->expect_seq);
           packet_to_client.writeData(SEGMENT_OFFSET+4, &new_seq, 4);
           packet_to_client.writeData(SEGMENT_OFFSET+8, &new_ack, 4);
           packet_to_client.writeData(SEGMENT_OFFSET+16, &parent_sock_info->recvSpace->restSpace, 2);
@@ -919,52 +904,44 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
           set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
 
           sendPacket("IPv4", std::move(packet_to_client));
-        }
-        packet->readData(DATA_OFFSET, &parent_sock_info->recvSpace->buffer, dataSize);
-        if (dataSize > parent_sock_info->recvSpace->waitLen) {
-          memcpy(parent_sock_info->recvSpace->waitBuffer, parent_sock_info->recvSpace->buffer, parent_sock_info->recvSpace->waitLen);
-          memset(&parent_sock_info->recvSpace->buffer, 0, sizeof(parent_sock_info->recvSpace->buffer));
-          printf("read return!\n");
-          returnSystemCall(parent_sock_info->recvSpace->waitUUID, parent_sock_info->recvSpace->waitLen);
+          printf("Data packet but not enough space send packet\n");
+          return;
         }
         else {
+          packet->readData(DATA_OFFSET, &parent_sock_info->recvSpace->buffer, dataSize);
           memcpy(parent_sock_info->recvSpace->waitBuffer, parent_sock_info->recvSpace->buffer, dataSize);
           memset(&parent_sock_info->recvSpace->buffer, 0, sizeof(parent_sock_info->recvSpace->buffer));
           printf("read return!\n");
           returnSystemCall(parent_sock_info->recvSpace->waitUUID, dataSize);
+          parent_sock_info->recvSpace->bufferStatus = BufferStatus::NORMAL;
+          parent_sock_info->recvSpace->waitBuffer = NULL;
+          parent_sock_info->recvSpace->waitLen = -1;
+          parent_sock_info->recvSpace->waitUUID = -1;
+          parent_sock_info->recvSpace->expect_seq += dataSize;
+
+          // send Packet to sender
+          packet_to_client = Packet (54);
+          setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
+
+          new_seq = ack;
+          new_ack = htonl(parent_sock_info->recvSpace->expect_seq);
+          packet_to_client.writeData(SEGMENT_OFFSET+4, &new_seq, 4);
+          packet_to_client.writeData(SEGMENT_OFFSET+8, &new_ack, 4);
+          packet_to_client.writeData(SEGMENT_OFFSET+16, &BUFFER_SIZE, 2);
+          set_packet_flags(&packet_to_client, TH_ACK);
+          set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
+
+          sendPacket("IPv4", std::move(packet_to_client));
+          printf("Get Data!! send packet\n");
         }
-        parent_sock_info->recvSpace->bufferStatus = BufferStatus::NORMAL;
-        parent_sock_info->recvSpace->waitBuffer = NULL;
-        parent_sock_info->recvSpace->waitLen = -1;
-        parent_sock_info->recvSpace->waitUUID = -1;
       }
       else if (parent_sock_info->recvSpace->bufferStatus == BufferStatus::NORMAL) {
-        printf("Oh it is normal so buffer is filled first\n");
-        packet->readData(DATA_OFFSET, &parent_sock_info->recvSpace->buffer, dataSize);
-        parent_sock_info->recvSpace->bufferStatus = BufferStatus::BUFFERFILLED;
+        printf("RecvBuffer Status is normal so buffer is filled first\n");
       }
       else if (parent_sock_info->recvSpace->bufferStatus == BufferStatus::BUFFERFILLED) {
         printf("buffer filled!!\n");
       }
     }
-    if (dataSize == -1) {
-      printf("In handleAckPacket, no data\n");
-    }
-
-    packet_to_client = Packet (54);
-    packet->readData(SEGMENT_OFFSET+4, &req_seq, 4);
-    packet->readData(SEGMENT_OFFSET+8, &req_ack, 4);
-    setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
-
-    new_seq = req_ack;
-    new_ack = htonl(ntohl(req_seq) + dataSize);
-    packet_to_client.writeData(SEGMENT_OFFSET+4, &new_seq, 4);
-    packet_to_client.writeData(SEGMENT_OFFSET+8, &new_ack, 4);
-    packet_to_client.writeData(SEGMENT_OFFSET+16, &BUFFER_SIZE, 2);
-    set_packet_flags(&packet_to_client, TH_ACK);
-    set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
-
-    sendPacket("IPv4", std::move(packet_to_client));
   }
 }
 
