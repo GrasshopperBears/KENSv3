@@ -30,7 +30,10 @@ enum BufferStatus {
   BUFFERFILLED
 };
 // ------------------enums end------------------
-
+const int PACKET_OFFSET = 14;
+const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
+const int DATA_OFFSET = SEGMENT_OFFSET + 20;
+const int BUFFER_SIZE = 2048;
 // ----------------structs start----------------
 struct sock_info {
   int pid;
@@ -43,6 +46,8 @@ struct sock_info {
   enum Status status;
   int backlog;
   UUID connect_syscallUUID;
+  struct RecvSpace* recvSpace;
+  struct SendSpace* sendSpace;
 };
 
 struct kens_sockaddr_in {
@@ -65,21 +70,24 @@ struct UsingResourceInfo {
   int pid;
   UUID syscalUUID;
 };
+
+struct RecvSpace {
+  char buffer[BUFFER_SIZE];
+  enum BufferStatus bufferStatus;
+  void *waitBuffer;
+  UUID waitUUID;
+  int waitLen;
+  bool readAllow;
+  int restSpace;
+  uint32_t seq_num;
+  uint32_t ack_num;
+};
+
+struct SendSpace {
+  char buffer[BUFFER_SIZE];
+  enum BufferStatus bufferStatus;
+};
 // ----------------structs end----------------
-
-const int PACKET_OFFSET = 14;
-const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
-const int DATA_OFFSET = SEGMENT_OFFSET + 20;
-const int BUFFER_SIZE = 2048;
-
-char receiveBuffer[BUFFER_SIZE];
-char sendBuffer[BUFFER_SIZE];
-enum BufferStatus recvBufferStatus = NORMAL;
-enum BufferStatus sendBufferStatus = NORMAL;
-void *readWaitBuffer;
-UUID readWaitUUID = -1;
-int readWaitLen = -1;
-bool readAllow = false;
 
 std::list<sock_info*> sock_table;
 
@@ -280,6 +288,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     sock_info->parent_sock = NULL;
     sock_info->child_sock_list = new std::list<struct sock_info*>();
     sock_info->backlog_list = new std::list<struct sock_info*>();
+    sock_info->recvSpace = NULL;
+    sock_info->sendSpace = NULL;
     sock_table.push_back(sock_info);
 
     returnSystemCall(syscallUUID, fd);
@@ -325,7 +335,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     // this->syscall_read(syscallUUID, pid, std::get<int>(param.params[0]),
     //                    std::get<void *>(param.params[1]),
     //                    std::get<int>(param.params[2]));
-    printf("read!, cur_recvbuffer: %x\n", receiveBuffer[0]);
+    printf("read!!\n");
     int fd = std::get<int>(param.params[0]);
     int readLen = std::get<int>(param.params[2]);
     sock_info_itr sock_info_itr = find_sock_info(pid, fd);
@@ -336,19 +346,19 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     }
     struct sock_info* sock_info = *sock_info_itr;
 
-    if (recvBufferStatus == BufferStatus::BUFFERFILLED) {
+    if (sock_info->recvSpace->bufferStatus == BufferStatus::BUFFERFILLED) {
       printf("In read, bufferfilled\n");
-      memcpy(std::get<void *>(param.params[1]), receiveBuffer, readLen);
-      recvBufferStatus = BufferStatus::NORMAL;
-      memset(&receiveBuffer, 0, sizeof(receiveBuffer));
+      memcpy(std::get<void *>(param.params[1]), sock_info->recvSpace->buffer, readLen);
+      sock_info->recvSpace->bufferStatus = BufferStatus::NORMAL;
+      memset(&sock_info->recvSpace->buffer, 0, sizeof(sock_info->recvSpace->buffer));
       returnSystemCall(syscallUUID, readLen);
     }
     else {
       printf("In read, waiting\n");
-      recvBufferStatus = BufferStatus::WAITING;
-      readWaitBuffer = std::get<void *>(param.params[1]);
-      readWaitUUID = syscallUUID;
-      readWaitLen = readLen;
+      sock_info->recvSpace->bufferStatus = BufferStatus::WAITING;
+      sock_info->recvSpace->waitBuffer = std::get<void *>(param.params[1]);
+      sock_info->recvSpace->waitUUID = syscallUUID;
+      sock_info->recvSpace->waitLen = readLen;
     }
 
     break;
@@ -370,15 +380,15 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     
     struct sock_info* sock_info = *sock_info_itr;
 
-    memset(&sendBuffer, 0, sizeof(sendBuffer));
-    memcpy(&sendBuffer, std::get<void *>(param.params[1]), writeLen);
+    memset(&sock_info->sendSpace->buffer, 0, sizeof(sock_info->sendSpace->buffer));
+    memcpy(&sock_info->sendSpace->buffer, std::get<void *>(param.params[1]), writeLen);
 
     Packet senderPacket (1514);
     setPacketSrcDst(&senderPacket, &sock_info->my_sockaddr->sin_addr, &sock_info->my_sockaddr->sin_port,
         &sock_info->peer_sockaddr->sin_addr, &sock_info->peer_sockaddr->sin_port);
     u_int32_t seq_num = getRandomSequnceNumber();
     senderPacket.writeData(SEGMENT_OFFSET + 4, &seq_num, 4);
-    senderPacket.writeData(DATA_OFFSET, sendBuffer, 1460);
+    senderPacket.writeData(DATA_OFFSET, sock_info->sendSpace->buffer, 1460);
     set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
 
     sendPacket("IPv4", std::move(senderPacket));
@@ -679,7 +689,7 @@ bool isTargetSock(struct kens_sockaddr_in *sockaddr_in, uint32_t target_ip, uint
 }
 
 void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
-  printf("SYNCACK pkt, size: %d\n", packet->getSize());
+  printf("SYNCACK pkt, size: %zu\n", packet->getSize());
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
   Packet response_packet = packet->clone();
@@ -703,7 +713,19 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
 
   if (sock_info->status == Status::SYN_SENT) {
     sock_info->status = Status::ESTAB;
-
+    if ((sock_info->recvSpace = (struct RecvSpace *) malloc(sizeof(struct RecvSpace))) == NULL) {
+      printf("In handleSynAckPacket, can't allocate memory\n");
+      return;
+    };
+    if ((sock_info->sendSpace = (struct SendSpace *) malloc(sizeof(struct SendSpace))) == NULL) {
+      printf("In handleSynAckPacket, can't allocate memory\n");
+      return;
+    }
+    sock_info->recvSpace->bufferStatus = BufferStatus::NORMAL;
+    sock_info->recvSpace->waitBuffer = NULL;
+    sock_info->recvSpace->waitLen = 0;
+    sock_info->recvSpace->waitUUID = -1;
+  
     set_packet_flags(&response_packet, TH_ACK);
     set_seq_ack_number(packet, &response_packet, TH_ACK);
     set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
@@ -792,43 +814,8 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   u_int32_t seq, ack;
   packet->readData(SEGMENT_OFFSET+4, &seq, 4);
   packet->readData(SEGMENT_OFFSET+8, &ack, 4);
-  printf("ACK pkt, size: %u, seq: %u, ack: %u\n", packet->getSize(), ntohl(seq), ntohl(ack));
+  printf("ACK pkt, size: %zu, seq: %u, ack: %u\n", packet->getSize(), ntohl(seq), ntohl(ack));
 
-  // Handle Data Packet
-  if (packet->getSize() > 54 && readAllow) {
-    readAllow = false;
-    dataSize = packet->getSize() - DATA_OFFSET;
-    if (recvBufferStatus == BufferStatus::WAITING) {
-      packet->readData(DATA_OFFSET, &receiveBuffer, dataSize);
-      if (dataSize > readWaitLen) {
-        memcpy(readWaitBuffer, receiveBuffer, readWaitLen);
-        memset(&receiveBuffer, 0, sizeof(receiveBuffer));
-        printf("read return!\n");
-        returnSystemCall(readWaitUUID, readWaitLen);
-      }
-      else {
-        memcpy(readWaitBuffer, receiveBuffer, dataSize);
-        memset(&receiveBuffer, 0, sizeof(receiveBuffer));
-        printf("read return!\n");
-        returnSystemCall(readWaitUUID, dataSize);
-      }
-      recvBufferStatus = BufferStatus::NORMAL;
-      readWaitBuffer = NULL;
-      readWaitLen = -1;
-      readWaitUUID = -1;
-    }
-    else if (recvBufferStatus == BufferStatus::NORMAL) {
-      printf("Oh it is normal so buffer is filled first\n");
-      packet->readData(DATA_OFFSET, &receiveBuffer, dataSize);
-      recvBufferStatus = BufferStatus::BUFFERFILLED;
-    }
-    else if (recvBufferStatus == BufferStatus::BUFFERFILLED) {
-      printf("buffer filled!!\n");
-    }
-  }
-  else {
-    memset(&sendBuffer, 0, sizeof(sendBuffer));
-  }
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
   // First find parent socket by income_dst_ip and income_dst_port
@@ -842,6 +829,42 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 
   if (itr == sock_table.end()) { return; }
 
+  // Handle Data Packet
+  if (packet->getSize() > 54 && parent_sock_info->recvSpace->readAllow) {
+    parent_sock_info->recvSpace->readAllow = false;
+    dataSize = packet->getSize() - DATA_OFFSET;
+    if (parent_sock_info->recvSpace->bufferStatus == BufferStatus::WAITING) {
+      packet->readData(DATA_OFFSET, &parent_sock_info->recvSpace->buffer, dataSize);
+      if (dataSize > parent_sock_info->recvSpace->waitLen) {
+        memcpy(parent_sock_info->recvSpace->waitBuffer, parent_sock_info->recvSpace->buffer, parent_sock_info->recvSpace->waitLen);
+        memset(&parent_sock_info->recvSpace->buffer, 0, sizeof(parent_sock_info->recvSpace->buffer));
+        printf("read return!\n");
+        returnSystemCall(parent_sock_info->recvSpace->waitUUID, parent_sock_info->recvSpace->waitLen);
+      }
+      else {
+        memcpy(parent_sock_info->recvSpace->waitBuffer, parent_sock_info->recvSpace->buffer, dataSize);
+        memset(&parent_sock_info->recvSpace->buffer, 0, sizeof(parent_sock_info->recvSpace->buffer));
+        printf("read return!\n");
+        returnSystemCall(parent_sock_info->recvSpace->waitUUID, dataSize);
+      }
+      parent_sock_info->recvSpace->bufferStatus = BufferStatus::NORMAL;
+      parent_sock_info->recvSpace->waitBuffer = NULL;
+      parent_sock_info->recvSpace->waitLen = -1;
+      parent_sock_info->recvSpace->waitUUID = -1;
+    }
+    else if (parent_sock_info->recvSpace->bufferStatus == BufferStatus::NORMAL) {
+      printf("Oh it is normal so buffer is filled first\n");
+      packet->readData(DATA_OFFSET, &parent_sock_info->recvSpace->buffer, dataSize);
+      parent_sock_info->recvSpace->bufferStatus = BufferStatus::BUFFERFILLED;
+    }
+    else if (parent_sock_info->recvSpace->bufferStatus == BufferStatus::BUFFERFILLED) {
+      printf("buffer filled!!\n");
+    }
+  }
+  else {
+    memset(&parent_sock_info->sendSpace->buffer, 0, sizeof(parent_sock_info->sendSpace->buffer));
+  }
+  
   if (parent_sock_info->status == Status::LISTEN) {
     if (parent_sock_info->backlog_list->size() == 0) { return; }
 
@@ -857,6 +880,14 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     parent_sock_info->backlog_list->erase(itr);
 
     sock_info->status = Status::ESTAB;
+    if ((sock_info->recvSpace = (struct RecvSpace *) malloc(sizeof(struct RecvSpace))) == NULL) {
+      printf("In handleSynAckPacket, can't allocate memory\n");
+      return;
+    };
+    if ((sock_info->sendSpace = (struct SendSpace *) malloc(sizeof(struct SendSpace))) == NULL) {
+      printf("In handleSynAckPacket, can't allocate memory\n");
+      return;
+    }
     parent_sock_info->child_sock_list->push_back(sock_info);
 
     if (accept_queue.size() > 0) {
@@ -880,7 +911,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   else if (parent_sock_info->status == Status::ESTAB) {
     if (dataSize == -1) {
       printf("In handleAckPacket, no data\n");
-      readAllow = true;
+      parent_sock_info->recvSpace->readAllow = true;
       return;
     }
     uint32_t req_seq, req_ack, new_seq, new_ack;
