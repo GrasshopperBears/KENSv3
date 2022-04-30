@@ -307,7 +307,7 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
 }
 
 void TCPAssignment::writeHandler(UUID syscallUUID, int pid, SyscallQueueItem *writeQueueItem) {
-  printf("write handler\n");
+  // printf("write handler\n");
   int fd = writeQueueItem->fd;
   char* write_buffer = writeQueueItem->write_buffer;
   int writeLen = writeQueueItem->writeLen;
@@ -333,7 +333,7 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, SyscallQueueItem *wr
   if (buffer_ptr_cnt < writeLen) {
     // block. buffer is full.
     sock_info->sendSpace->waiting_write_list->push_back(writeQueueItem);
-    printf("blocked\n");
+    // printf("blocked\n");
     return;
   }
 
@@ -379,19 +379,15 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, SyscallQueueItem *wr
 
     PacketNode *packetNode = (PacketNode *) malloc(sizeof(struct PacketNode));
     packetNode->packet = &senderPacket;
-    packetNode->buffer_ptr = sock_info->sendSpace->buffer + buffer_offset;
+    packetNode->buffer_ptr = current_buffer_begin + buffer_offset;
     packetNode->buffer_size = packet_size;
     packetNode->seq_num = sock_info->my_seq_base + buffer_offset;
 
     sock_info->sendSpace->sent_packet_list->push_back(packetNode);
     sock_info->my_seq_base += writeLen;
 
-    
-
     sendPacket("IPv4", std::move(senderPacket));
   }
-
-  printf("packet sent\n");
   returnSystemCall(syscallUUID, writeLen);
 }
 
@@ -830,11 +826,11 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   if (sock_info->status == Status::SYN_SENT) {
     sock_info->status = Status::ESTAB;
     if ((sock_info->recvSpace = (struct RecvSpace *) malloc(sizeof(struct RecvSpace))) == NULL) {
-      printf("In handleSynAckPacket, can't allocate memory\n");
+      printf("Error: In handleSynAckPacket, can't allocate memory\n");
       return;
     };
     if ((sock_info->sendSpace = (struct SendSpace *) malloc(sizeof(struct SendSpace))) == NULL) {
-      printf("In handleSynAckPacket, can't allocate memory\n");
+      printf("Error: In handleSynAckPacket, can't allocate memory\n");
       return;
     }
 
@@ -945,7 +941,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   if (itr == sock_table.end()) { return; }
 
   if ((*itr)->status == Status::ESTAB) {
-    printf("ack arrive\n");
+    // printf("ack arrive\n");
     bool acked = false;
     uint32_t seq_num = get_seq_number(packet);
     uint32_t ack_num = get_ack_number(packet);
@@ -967,7 +963,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       syscall_queue_itr write_queue_itr = sock_info->sendSpace->waiting_write_list->begin();
       struct SyscallQueueItem *writeQueueItem = *write_queue_itr;
       sock_info->sendSpace->waiting_write_list->erase(write_queue_itr);
-      printf("next write pending\n");
+      // printf("next write pending\n");
       writeHandler(writeQueueItem->syscallUUID, writeQueueItem->pid, writeQueueItem);
     }
   } else if (parent_sock_info->status == Status::LISTEN) {
@@ -986,11 +982,11 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 
     sock_info->status = Status::ESTAB;
     if ((sock_info->recvSpace = (struct RecvSpace *) malloc(sizeof(struct RecvSpace))) == NULL) {
-      printf("In handleSynAckPacket, can't allocate memory\n");
+      printf("Error: In handleSynAckPacket, can't allocate memory\n");
       return;
     };
     if ((sock_info->sendSpace = (struct SendSpace *) malloc(sizeof(struct SendSpace))) == NULL) {
-      printf("In handleSynAckPacket, can't allocate memory\n");
+      printf("Error: In handleSynAckPacket, can't allocate memory\n");
       return;
     }
     memset(sock_info->sendSpace->buffer, 0, sizeof(sock_info->sendSpace->buffer));
