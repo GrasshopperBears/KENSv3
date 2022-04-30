@@ -82,7 +82,10 @@ struct RecvSpace {
 
 struct SendSpace {
   char buffer[BUFFER_SIZE];
-  enum BufferStatus bufferStatus = NORMAL;
+  char* next_write;
+  size_t buffer_remain;
+
+  // enum BufferStatus bufferStatus = NORMAL;
 };
 // ----------------structs end----------------
 
@@ -262,6 +265,59 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
   return;
 }
 
+void TCPAssignment::writeHandler(UUID syscallUUID, int pid,
+                                  SystemCallParameter *param) {
+  int fd = std::get<int>(param->params[0]);
+  void* write_buffer = std::get<void *>(param->params[1]);
+  int writeLen = std::get<int>(param->params[2]), buffer_ptr_cnt = 0;
+  sock_info_itr sock_info_itr = find_sock_info(pid, fd);
+  struct sock_info* sock_info = *sock_info_itr;
+  char* buffer_ptr;
+
+  if (sock_info_itr == sock_table.end() || sock_info->status != Status::ESTAB) {
+    free(param);
+    return returnSystemCall(syscallUUID, -1);
+  }
+
+  struct SendSpace* sendSpace = sock_info->sendSpace;
+  buffer_ptr = sendSpace->next_write;
+
+  while (buffer_ptr == NULL && buffer_ptr_cnt < writeLen) {
+    buffer_ptr++;
+    buffer_ptr_cnt++;
+    if (buffer_ptr >= sendSpace->buffer + BUFFER_SIZE) { buffer_ptr -= BUFFER_SIZE; }
+  }
+
+  if (buffer_ptr == sendSpace->next_write) {
+    // block. buffer is full.
+    return;
+  }
+
+  if (buffer_ptr >= sendSpace->buffer) {
+    memset(sendSpace->next_write, 0, writeLen);
+    memcpy(sendSpace->next_write, write_buffer, writeLen);
+  } else {
+    size_t first = sendSpace->buffer + BUFFER_SIZE - sendSpace->next_write;
+    size_t second = buffer_ptr - sendSpace->buffer;
+    memset(sendSpace->next_write, 0, first);
+    memset(sendSpace->buffer, 0, second);
+    memcpy(sendSpace->next_write, write_buffer, first);
+    memcpy(sendSpace->buffer, write_buffer + first, second);
+  }
+
+  returnSystemCall(syscallUUID, writeLen);
+
+  Packet senderPacket (1514);
+  setPacketSrcDst(&senderPacket, &sock_info->my_sockaddr->sin_addr, &sock_info->my_sockaddr->sin_port,
+      &sock_info->peer_sockaddr->sin_addr, &sock_info->peer_sockaddr->sin_port);
+  u_int32_t seq_num = getRandomSequnceNumber();
+  senderPacket.writeData(SEGMENT_OFFSET + 4, &seq_num, 4);
+  senderPacket.writeData(DATA_OFFSET, sock_info->sendSpace->buffer, 1460);
+  set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
+
+  sendPacket("IPv4", std::move(senderPacket));
+}
+
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
                                    const SystemCallParameter &param) {
   switch (param.syscallNumber) {
@@ -361,30 +417,9 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     // this->syscall_write(syscallUUID, pid, std::get<int>(param.params[0]),
     //                     std::get<void *>(param.params[1]),
     //                     std::get<int>(param.params[2]));
-    int fd = std::get<int>(param.params[0]);
-    int writeLen = std::get<int>(param.params[2]);
-    sock_info_itr sock_info_itr = find_sock_info(pid, fd);
-    struct sock_info* sock_info = *sock_info_itr;
-
-    if (sock_info_itr == sock_table.end() || sock_info->status != Status::ESTAB) {
-      returnSystemCall(syscallUUID, -1);
-      break;
-    }
-    returnSystemCall(syscallUUID, writeLen);
-
-    memset(&sock_info->sendSpace->buffer, 0, sizeof(sock_info->sendSpace->buffer));
-    memcpy(&sock_info->sendSpace->buffer, std::get<void *>(param.params[1]), writeLen);
-
-    Packet senderPacket (1514);
-    setPacketSrcDst(&senderPacket, &sock_info->my_sockaddr->sin_addr, &sock_info->my_sockaddr->sin_port,
-        &sock_info->peer_sockaddr->sin_addr, &sock_info->peer_sockaddr->sin_port);
-    u_int32_t seq_num = getRandomSequnceNumber();
-    senderPacket.writeData(SEGMENT_OFFSET + 4, &seq_num, 4);
-    senderPacket.writeData(DATA_OFFSET, sock_info->sendSpace->buffer, 1460);
-    set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
-
-    sendPacket("IPv4", std::move(senderPacket));
-
+    SystemCallParameter *param_to_pass = (SystemCallParameter *) malloc(sizeof(SystemCallParameter));
+    memcpy(param_to_pass, &param, sizeof(SystemCallParameter));
+    writeHandler(syscallUUID, pid, param_to_pass);
     break;
   }
   case CONNECT: {
