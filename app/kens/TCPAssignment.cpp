@@ -185,6 +185,11 @@ void set_packet_flags(Packet *packet, uint8_t flags) {
   packet->writeData(SEGMENT_OFFSET + 13, &flags, 1);
 }
 
+void set_packet_length(Packet *packet, uint8_t len = 20) {
+  uint8_t len_converted = (len / 4) << 4;
+  packet->writeData(SEGMENT_OFFSET + 12, &len_converted, 1);
+}
+
 u_int32_t getRandomSequnceNumber() {
   u_int32_t seq_num;
   srand((unsigned int) time(NULL));
@@ -366,6 +371,8 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, SyscallQueueItem *wr
 
     set_seq_number(&senderPacket, sock_info->my_seq_base + buffer_offset);
     set_ack_number(&senderPacket, sock_info->peer_seq_base);
+    set_packet_flags(&senderPacket, TH_ACK);
+    set_packet_length(&senderPacket);
 
     senderPacket.writeData(DATA_OFFSET, current_buffer_begin + buffer_offset, packet_size);
     set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
@@ -379,10 +386,12 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, SyscallQueueItem *wr
     sock_info->sendSpace->sent_packet_list->push_back(packetNode);
     sock_info->my_seq_base += writeLen;
 
-    printf("packet sent\n");
+    
 
     sendPacket("IPv4", std::move(senderPacket));
   }
+
+  printf("packet sent\n");
   returnSystemCall(syscallUUID, writeLen);
 }
 
@@ -492,8 +501,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     struct sock_info* sock_info = *sock_info_itr;
     char *buffer_ptr, *current_buffer_begin;
     SyscallQueueItem *writeQueueItem = (SyscallQueueItem *) malloc(sizeof(struct SyscallQueueItem));
-
-    printf("first: %x %x %x\n", param_write_buffer[0], param_write_buffer[1], param_write_buffer[2]);
     
     writeQueueItem->pid = pid;
     writeQueueItem->syscallUUID = syscallUUID;
@@ -841,7 +848,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
 
     sock_info->my_seq_base = get_seq_number(&response_packet);
-    sock_info->peer_seq_base = get_seq_number(packet);
+    sock_info->peer_seq_base = get_ack_number(&response_packet);
 
     sendPacket("IPv4", std::move(response_packet));
     returnSystemCall(sock_info->connect_syscallUUID, 0);
