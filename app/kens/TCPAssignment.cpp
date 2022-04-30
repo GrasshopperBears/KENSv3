@@ -364,14 +364,13 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     int fd = std::get<int>(param.params[0]);
     int writeLen = std::get<int>(param.params[2]);
     sock_info_itr sock_info_itr = find_sock_info(pid, fd);
+    struct sock_info* sock_info = *sock_info_itr;
 
-    if (sock_info_itr == sock_table.end()) {
+    if (sock_info_itr == sock_table.end() || sock_info->status != Status::ESTAB) {
       returnSystemCall(syscallUUID, -1);
       break;
     }
     returnSystemCall(syscallUUID, writeLen);
-    
-    struct sock_info* sock_info = *sock_info_itr;
 
     memset(&sock_info->sendSpace->buffer, 0, sizeof(sock_info->sendSpace->buffer));
     memcpy(&sock_info->sendSpace->buffer, std::get<void *>(param.params[1]), writeLen);
