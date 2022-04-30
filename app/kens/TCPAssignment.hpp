@@ -18,6 +18,8 @@
 
 namespace E {
 
+struct SyscallQueueItem;
+
 class TCPAssignment : public HostModule,
                       private RoutingInfoInterface,
                       public SystemCallInterface,
@@ -33,7 +35,7 @@ public:
 
 protected:
   virtual void acceptHandler(UUID syscallUUID, int pid, SystemCallParameter *param) final;
-  virtual void writeHandler(UUID syscallUUID, int pid, SystemCallParameter *param) final;
+  virtual void writeHandler(UUID syscallUUID, int pid, SyscallQueueItem *writeQueueItem) final;
   virtual void systemCallback(UUID syscallUUID, int pid,
                               const SystemCallParameter &param) final;
   virtual void handleSynAckPacket(std::string fromModule, Packet *packet) final;
