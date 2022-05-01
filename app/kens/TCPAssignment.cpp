@@ -313,6 +313,10 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       free(sock_info->my_sockaddr);
     if (sock_info->peer_sockaddr != NULL)
       free(sock_info->peer_sockaddr);
+    if (sock_info->recvSpace != NULL)
+      free(sock_info->recvSpace);
+    if (sock_info->sendSpace != NULL)
+      free(sock_info->sendSpace);
     free(sock_info);
 
     struct UsingResourceInfo* using_resource_info;
@@ -345,6 +349,12 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       break;
     }
     struct sock_info* sock_info = *sock_info_itr;
+
+    // If status of the socket is not ESTAB, return
+    if (sock_info->status != Status::ESTAB) {
+      returnSystemCall(syscallUUID, -1);
+      break;
+    }
 
     if (sock_info->recvSpace->bufferStatus == BufferStatus::BUFFERFILLED) {
       printf("In read, bufferfilled\n");
@@ -730,7 +740,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->recvSpace->waitUUID = -1;
     sock_info->recvSpace->restSpace = BUFFER_SIZE;
     sock_info->recvSpace->expect_seq = ntohl(seq);
-    sock_info->recvSpace->expect_ack = ntohl(seq);
+    sock_info->recvSpace->expect_ack = ntohl(ack);
     sock_info->recvSpace->recv_base = 0;
     sock_info->recvSpace->expect_seq += 1;
   
@@ -814,7 +824,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
   Packet packet_to_client = packet->clone();
-  struct sock_info *sock_info, *parent_sock_info;
+  struct sock_info *sock_info, *parent_sock_info, *estab_sock_info = NULL;
   struct AcceptQueueItem *accept_queue_item;
   sock_info_itr itr;
   accept_queue_itr accept_queue_itr;
@@ -837,7 +847,107 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   }
 
   if (itr == sock_table.end()) { return; }
-  
+
+  if (parent_sock_info->status == Status::ESTAB) {
+    estab_sock_info = parent_sock_info;
+  }
+  else if (parent_sock_info->status == Status::LISTEN) {
+    for (itr = parent_sock_info->child_sock_list->begin(); itr != parent_sock_info->child_sock_list->end(); ++itr) {
+      sock_info = *itr;
+      if (isTargetSock(sock_info->peer_sockaddr, income_src_ip, income_src_port, true)) {
+        break;
+      }
+    }
+    if (itr != parent_sock_info->child_sock_list->end()) {
+      estab_sock_info = sock_info;
+    }
+  }
+
+  if (estab_sock_info != NULL) {
+    dataSize = packet->getSize() - DATA_OFFSET;
+    printf("expect seq: %u, waitLen: %u, dataSize: %u\n", estab_sock_info->recvSpace->expect_seq, estab_sock_info->recvSpace->waitLen, dataSize);
+    // No data Packet
+    if (dataSize <= 0) {
+      return;
+    }
+    // Data Packet
+    else {
+      if (estab_sock_info->recvSpace->bufferStatus == BufferStatus::WAITING) {
+        // There is no space for data or its seq number is not expected sequence number. So send packet with rcwd
+        if (estab_sock_info->recvSpace->restSpace < dataSize || htonl(estab_sock_info->recvSpace->expect_seq) != seq) {
+          printf("rest Space: %u, dataSize: %u, is it same seq? %d\n", estab_sock_info->recvSpace->restSpace, dataSize, htonl(estab_sock_info->recvSpace->expect_seq) == seq);
+          packet_to_client = Packet (54);
+          setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
+
+          new_seq = ack;
+          new_ack = htonl(estab_sock_info->recvSpace->expect_seq);
+          packet_to_client.writeData(SEGMENT_OFFSET+4, &new_seq, 4);
+          packet_to_client.writeData(SEGMENT_OFFSET+8, &new_ack, 4);
+          packet_to_client.writeData(SEGMENT_OFFSET+16, &estab_sock_info->recvSpace->restSpace, 2);
+          set_packet_flags(&packet_to_client, TH_ACK);
+          set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
+
+          sendPacket("IPv4", std::move(packet_to_client));
+          printf("Data packet but not enough space send packet\n");
+        }
+        else {
+          packet->readData(DATA_OFFSET, &estab_sock_info->recvSpace->buffer, dataSize);
+          // Case 1: Read Wait Length is less than dataSize
+          if (estab_sock_info->recvSpace->waitLen < dataSize) {
+            if (dataSize - estab_sock_info->recvSpace->recv_base > estab_sock_info->recvSpace->waitLen)
+              memcpy(estab_sock_info->recvSpace->waitBuffer, estab_sock_info->recvSpace->buffer + estab_sock_info->recvSpace->recv_base, estab_sock_info->recvSpace->waitLen);
+            else
+              memcpy(estab_sock_info->recvSpace->waitBuffer, estab_sock_info->recvSpace->buffer + estab_sock_info->recvSpace->recv_base, dataSize - estab_sock_info->recvSpace->recv_base);
+            memset(&estab_sock_info->recvSpace->buffer, 0, sizeof(estab_sock_info->recvSpace->buffer));
+            printf("read return! (small size than dataSize), waitLen: %u, recv_base: %u\n", estab_sock_info->recvSpace->waitLen, estab_sock_info->recvSpace->recv_base);
+            returnSystemCall(estab_sock_info->recvSpace->waitUUID, estab_sock_info->recvSpace->waitLen);
+            estab_sock_info->recvSpace->recv_base += estab_sock_info->recvSpace->waitLen;
+            if (estab_sock_info->recvSpace->recv_base >= dataSize) {
+              estab_sock_info->recvSpace->recv_base = 0;
+              estab_sock_info->recvSpace->expect_seq += dataSize;
+            }
+            printf("recv_base: %u\n", estab_sock_info->recvSpace->recv_base);
+          }
+          // Case 2: DataSize is less than Read Wait Length (or equal)
+          else {
+            memcpy(estab_sock_info->recvSpace->waitBuffer, estab_sock_info->recvSpace->buffer + estab_sock_info->recvSpace->recv_base, dataSize - estab_sock_info->recvSpace->recv_base);
+            memset(&estab_sock_info->recvSpace->buffer, 0, sizeof(estab_sock_info->recvSpace->buffer));
+            printf("read return!\n");
+            returnSystemCall(estab_sock_info->recvSpace->waitUUID, dataSize - estab_sock_info->recvSpace->recv_base);
+            estab_sock_info->recvSpace->expect_seq += dataSize;
+            estab_sock_info->recvSpace->recv_base = 0;
+          }
+          estab_sock_info->recvSpace->bufferStatus = BufferStatus::NORMAL;
+          estab_sock_info->recvSpace->waitBuffer = NULL;
+          estab_sock_info->recvSpace->waitLen = -1;
+          estab_sock_info->recvSpace->waitUUID = -1;
+          
+          // send Packet to sender
+          packet_to_client = Packet (54);
+          setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
+
+          new_seq = ack;
+          new_ack = htonl(estab_sock_info->recvSpace->expect_seq);
+          packet_to_client.writeData(SEGMENT_OFFSET+4, &new_seq, 4);
+          packet_to_client.writeData(SEGMENT_OFFSET+8, &new_ack, 4);
+          packet_to_client.writeData(SEGMENT_OFFSET+16, &BUFFER_SIZE, 2);
+          set_packet_flags(&packet_to_client, TH_ACK);
+          set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
+
+          sendPacket("IPv4", std::move(packet_to_client));
+          printf("Get Data!! send packet, expect seq: %u\n", estab_sock_info->recvSpace->expect_seq);
+        }
+      }
+      else if (estab_sock_info->recvSpace->bufferStatus == BufferStatus::NORMAL) {
+        printf("RecvBuffer Status is normal so buffer is filled first\n");
+      }
+      else if (estab_sock_info->recvSpace->bufferStatus == BufferStatus::BUFFERFILLED) {
+        printf("buffer filled!!\n");
+      }
+      return;
+    }
+  }
+
   if (parent_sock_info->status == Status::LISTEN) {
     if (parent_sock_info->backlog_list->size() == 0) { return; }
 
@@ -861,6 +971,15 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       printf("In handleSynAckPacket, can't allocate memory\n");
       return;
     }
+    printf("finish allocate recvSpace & sendSpace\n");
+    sock_info->recvSpace->bufferStatus = BufferStatus::NORMAL;
+    sock_info->recvSpace->waitBuffer = NULL;
+    sock_info->recvSpace->waitLen = 0;
+    sock_info->recvSpace->waitUUID = -1;
+    sock_info->recvSpace->restSpace = BUFFER_SIZE;
+    sock_info->recvSpace->expect_seq = ntohl(seq);
+    sock_info->recvSpace->expect_ack = ntohl(ack);
+    sock_info->recvSpace->recv_base = 0;
     parent_sock_info->child_sock_list->push_back(sock_info);
 
     if (accept_queue.size() > 0) {
@@ -880,90 +999,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
     
     sendPacket("IPv4", std::move(packet_to_client));
-  }
-  else if (parent_sock_info->status == Status::ESTAB) {
-    printf("expect seq: %u\n", parent_sock_info->recvSpace->expect_seq);
-    dataSize = packet->getSize() - DATA_OFFSET;
-    // No data Packet
-    if (dataSize <= 0) {
-      return;
-    }
-    // Data Packet
-    else {
-      if (parent_sock_info->recvSpace->bufferStatus == BufferStatus::WAITING) {
-        // There is no space for data or its seq number is not expected sequence number. So send packet with rcwd
-        if (parent_sock_info->recvSpace->restSpace < dataSize || htonl(parent_sock_info->recvSpace->expect_seq) != seq) {
-          printf("rest Space: %u, dataSize: %u, is it same seq? %d\n", parent_sock_info->recvSpace->restSpace, dataSize, htonl(parent_sock_info->recvSpace->expect_seq) == seq);
-          packet_to_client = Packet (54);
-          setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
-
-          new_seq = ack;
-          new_ack = htonl(parent_sock_info->recvSpace->expect_seq);
-          packet_to_client.writeData(SEGMENT_OFFSET+4, &new_seq, 4);
-          packet_to_client.writeData(SEGMENT_OFFSET+8, &new_ack, 4);
-          packet_to_client.writeData(SEGMENT_OFFSET+16, &parent_sock_info->recvSpace->restSpace, 2);
-          set_packet_flags(&packet_to_client, TH_ACK);
-          set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
-
-          sendPacket("IPv4", std::move(packet_to_client));
-          printf("Data packet but not enough space send packet\n");
-          return;
-        }
-        else {
-          packet->readData(DATA_OFFSET, &parent_sock_info->recvSpace->buffer, dataSize);
-          // Case 1: Read Wait Length is less than dataSize
-          if (parent_sock_info->recvSpace->waitLen < dataSize) {
-            if (dataSize - parent_sock_info->recvSpace->recv_base > parent_sock_info->recvSpace->waitLen)
-              memcpy(parent_sock_info->recvSpace->waitBuffer, parent_sock_info->recvSpace->buffer + parent_sock_info->recvSpace->recv_base, parent_sock_info->recvSpace->waitLen);
-            else
-              memcpy(parent_sock_info->recvSpace->waitBuffer, parent_sock_info->recvSpace->buffer + parent_sock_info->recvSpace->recv_base, dataSize - parent_sock_info->recvSpace->recv_base);
-            memset(&parent_sock_info->recvSpace->buffer, 0, sizeof(parent_sock_info->recvSpace->buffer));
-            printf("read return! (small size than dataSize), waitLen: %u, recv_base: %u\n", parent_sock_info->recvSpace->waitLen, parent_sock_info->recvSpace->recv_base);
-            returnSystemCall(parent_sock_info->recvSpace->waitUUID, parent_sock_info->recvSpace->waitLen);
-            parent_sock_info->recvSpace->recv_base += parent_sock_info->recvSpace->waitLen;
-            if (parent_sock_info->recvSpace->recv_base >= dataSize) {
-              parent_sock_info->recvSpace->recv_base = 0;
-              parent_sock_info->recvSpace->expect_seq += dataSize;
-            }
-            printf("recv_base: %u\n", parent_sock_info->recvSpace->recv_base);
-          }
-          // Case 2: DataSize is less than Read Wait Length (or equal)
-          else {
-            memcpy(parent_sock_info->recvSpace->waitBuffer, parent_sock_info->recvSpace->buffer + parent_sock_info->recvSpace->recv_base, dataSize - parent_sock_info->recvSpace->recv_base);
-            memset(&parent_sock_info->recvSpace->buffer, 0, sizeof(parent_sock_info->recvSpace->buffer));
-            printf("read return!\n");
-            returnSystemCall(parent_sock_info->recvSpace->waitUUID, dataSize - parent_sock_info->recvSpace->recv_base);
-            parent_sock_info->recvSpace->expect_seq += dataSize;
-            parent_sock_info->recvSpace->recv_base = 0;
-          }
-          parent_sock_info->recvSpace->bufferStatus = BufferStatus::NORMAL;
-          parent_sock_info->recvSpace->waitBuffer = NULL;
-          parent_sock_info->recvSpace->waitLen = -1;
-          parent_sock_info->recvSpace->waitUUID = -1;
-          
-          // send Packet to sender
-          packet_to_client = Packet (54);
-          setPacketSrcDst(&packet_to_client, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
-
-          new_seq = ack;
-          new_ack = htonl(parent_sock_info->recvSpace->expect_seq);
-          packet_to_client.writeData(SEGMENT_OFFSET+4, &new_seq, 4);
-          packet_to_client.writeData(SEGMENT_OFFSET+8, &new_ack, 4);
-          packet_to_client.writeData(SEGMENT_OFFSET+16, &BUFFER_SIZE, 2);
-          set_packet_flags(&packet_to_client, TH_ACK);
-          set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
-
-          sendPacket("IPv4", std::move(packet_to_client));
-          printf("Get Data!! send packet, expect seq: %u\n", parent_sock_info->recvSpace->expect_seq);
-        }
-      }
-      else if (parent_sock_info->recvSpace->bufferStatus == BufferStatus::NORMAL) {
-        printf("RecvBuffer Status is normal so buffer is filled first\n");
-      }
-      else if (parent_sock_info->recvSpace->bufferStatus == BufferStatus::BUFFERFILLED) {
-        printf("buffer filled!!\n");
-      }
-    }
   }
 }
 
