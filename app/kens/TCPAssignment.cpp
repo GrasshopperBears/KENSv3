@@ -918,20 +918,21 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
             else
               memcpy(parent_sock_info->recvSpace->waitBuffer, parent_sock_info->recvSpace->buffer + parent_sock_info->recvSpace->recv_base, dataSize - parent_sock_info->recvSpace->recv_base);
             memset(&parent_sock_info->recvSpace->buffer, 0, sizeof(parent_sock_info->recvSpace->buffer));
-            printf("read return! (small size than dataSize), waitLen: %u\n", parent_sock_info->recvSpace->waitLen);
+            printf("read return! (small size than dataSize), waitLen: %u, recv_base: %u\n", parent_sock_info->recvSpace->waitLen, parent_sock_info->recvSpace->recv_base);
             returnSystemCall(parent_sock_info->recvSpace->waitUUID, parent_sock_info->recvSpace->waitLen);
             parent_sock_info->recvSpace->recv_base += parent_sock_info->recvSpace->waitLen;
             if (parent_sock_info->recvSpace->recv_base >= dataSize) {
               parent_sock_info->recvSpace->recv_base = 0;
               parent_sock_info->recvSpace->expect_seq += dataSize;
             }
+            printf("recv_base: %u\n", parent_sock_info->recvSpace->recv_base);
           }
           // Case 2: DataSize is less than Read Wait Length (or equal)
           else {
-            memcpy(parent_sock_info->recvSpace->waitBuffer, parent_sock_info->recvSpace->buffer, dataSize);
+            memcpy(parent_sock_info->recvSpace->waitBuffer, parent_sock_info->recvSpace->buffer + parent_sock_info->recvSpace->recv_base, dataSize - parent_sock_info->recvSpace->recv_base);
             memset(&parent_sock_info->recvSpace->buffer, 0, sizeof(parent_sock_info->recvSpace->buffer));
             printf("read return!\n");
-            returnSystemCall(parent_sock_info->recvSpace->waitUUID, dataSize);
+            returnSystemCall(parent_sock_info->recvSpace->waitUUID, dataSize - parent_sock_info->recvSpace->recv_base);
             parent_sock_info->recvSpace->expect_seq += dataSize;
             parent_sock_info->recvSpace->recv_base = 0;
           }
