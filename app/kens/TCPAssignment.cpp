@@ -80,6 +80,7 @@ struct RecvSpace {
   int restSpace;
   uint32_t expect_seq;
   uint32_t recv_base;
+  Packet *recv_pkt;
 };
 
 struct SendSpace {
@@ -334,6 +335,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       free(sock_info->my_sockaddr);
     if (sock_info->peer_sockaddr != NULL)
       free(sock_info->peer_sockaddr);
+    if (sock_info->recvSpace != NULL && sock_info->recvSpace->recv_pkt != NULL)
+      free(sock_info->recvSpace->recv_pkt);
     if (sock_info->recvSpace != NULL)
       free(sock_info->recvSpace);
     if (sock_info->sendSpace != NULL)
@@ -361,6 +364,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     //                    std::get<void *>(param.params[1]),
     //                    std::get<int>(param.params[2]));
     int fd = std::get<int>(param.params[0]);
+    void *calledBuffer = std::get<void *>(param.params[1]);
     int readLen = std::get<int>(param.params[2]);
     sock_info_itr sock_info_itr = find_sock_info(pid, fd);
 
@@ -377,14 +381,39 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     }
 
     if (sock_info->recvSpace->bufferStatus == BufferStatus::BUFFERFILLED) {
-      memcpy(std::get<void *>(param.params[1]), sock_info->recvSpace->buffer, readLen);
+      int dataSize = BUFFER_SIZE - sock_info->recvSpace->restSpace;
+      // Case 1: Read Length is less than dataSize
+      if (readLen < dataSize) {
+        if (dataSize - sock_info->recvSpace->recv_base > readLen)
+          memcpy(calledBuffer, sock_info->recvSpace->buffer + sock_info->recvSpace->recv_base, readLen);
+        else
+          memcpy(calledBuffer, sock_info->recvSpace->buffer + sock_info->recvSpace->recv_base, dataSize - sock_info->recvSpace->recv_base);
+      
+        memset(&sock_info->recvSpace->buffer, 0, sizeof(sock_info->recvSpace->buffer));
+        returnSystemCall(syscallUUID, readLen);
+        sock_info->recvSpace->recv_base += readLen;
+        if (sock_info->recvSpace->recv_base >= dataSize) {
+          sock_info->recvSpace->expect_seq += dataSize;
+          sock_info->recvSpace->recv_base = 0;
+        }
+      }
+      // Case 2: DataSize is less than Read Wait Length (or equal)
+      else {
+        memcpy(calledBuffer, sock_info->recvSpace->buffer + sock_info->recvSpace->recv_base, dataSize - sock_info->recvSpace->recv_base);
+        memset(&sock_info->recvSpace->buffer, 0, sizeof(sock_info->recvSpace->buffer));
+        returnSystemCall(syscallUUID, dataSize - sock_info->recvSpace->recv_base);
+        sock_info->recvSpace->expect_seq += dataSize;
+        sock_info->recvSpace->restSpace = BUFFER_SIZE;
+        sock_info->recvSpace->recv_base = 0;
+      }
       sock_info->recvSpace->bufferStatus = BufferStatus::NORMAL;
-      memset(&sock_info->recvSpace->buffer, 0, sizeof(sock_info->recvSpace->buffer));
-      returnSystemCall(syscallUUID, readLen);
+      ack_received_packet(sock_info->recvSpace->recv_pkt, sock_info);
+      free(sock_info->recvSpace->recv_pkt);
+      sock_info->recvSpace->recv_pkt = NULL;
     }
     else {
       sock_info->recvSpace->bufferStatus = BufferStatus::WAITING;
-      sock_info->recvSpace->waitBuffer = std::get<void *>(param.params[1]);
+      sock_info->recvSpace->waitBuffer = calledBuffer;
       sock_info->recvSpace->waitUUID = syscallUUID;
       sock_info->recvSpace->waitLen = readLen;
     }
@@ -395,7 +424,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     // this->syscall_write(syscallUUID, pid, std::get<int>(param.params[0]),
     //                     std::get<void *>(param.params[1]),
     //                     std::get<int>(param.params[2]));
-    printf("write!!\n");
     int fd = std::get<int>(param.params[0]);
     int writeLen = std::get<int>(param.params[2]);
     sock_info_itr sock_info_itr = find_sock_info(pid, fd);
@@ -716,6 +744,12 @@ bool isTargetSock(struct kens_sockaddr_in *sockaddr_in, uint32_t target_ip, uint
           && ((!strict && sockaddr_in->sin_addr == 0) || sockaddr_in->sin_addr == target_ip);
 }
 
+/*
+  ack_received_packet:
+    When receiver receive data, send acknowledge packet to sender.
+    The acknowledge packet has new ack number which is added as data size.
+    New ack number is already adjusted in `expect_seq`.
+*/
 void TCPAssignment::ack_received_packet(Packet *packet, struct sock_info *sock_info) {
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
@@ -776,6 +810,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->recvSpace->expect_seq = get_seq_number(packet);
     sock_info->recvSpace->recv_base = 0;
     sock_info->recvSpace->expect_seq += 1;
+    sock_info->recvSpace->recv_pkt = NULL;
   
     set_packet_flags(&response_packet, TH_ACK);
     set_handshake_seqack_number(packet, &response_packet, TH_ACK);
@@ -875,6 +910,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 
   if (itr == sock_table.end()) { return; }
 
+  // If there is ESTAB sock_info, allocate it as `estab_sock_info`
   if (parent_sock_info->status == Status::ESTAB) {
     estab_sock_info = parent_sock_info;
   }
@@ -890,16 +926,16 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     }
   }
 
+  // If there is ESTAB sock_info, run this code.
   if (estab_sock_info != NULL) {
     dataSize = packet->getSize() - DATA_OFFSET;
     uint32_t seq_num = get_seq_number(packet);
     uint32_t ack_num = get_ack_number(packet);
     // No data Packet
-    if (dataSize <= 0) {
+    if (dataSize <= 0)
       return;
-    }
-    // Data Packet
-    else {
+    
+    else { // Handle Data Packet (Receive)
       if (estab_sock_info->recvSpace->bufferStatus == BufferStatus::WAITING) {
         // There is no space for data or its seq number is not expected sequence number. So send packet with rcwd
         if (estab_sock_info->recvSpace->restSpace < dataSize || estab_sock_info->recvSpace->expect_seq != seq_num) {
@@ -933,16 +969,23 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
           estab_sock_info->recvSpace->waitBuffer = NULL;
           estab_sock_info->recvSpace->waitLen = -1;
           estab_sock_info->recvSpace->waitUUID = -1;
-          
+
           // send Packet to sender
           ack_received_packet(packet, estab_sock_info);
         }
       }
       else if (estab_sock_info->recvSpace->bufferStatus == BufferStatus::NORMAL) {
-        printf("RecvBuffer Status is normal so buffer is filled first\n");
-      }
-      else if (estab_sock_info->recvSpace->bufferStatus == BufferStatus::BUFFERFILLED) {
-        printf("buffer filled!!\n");
+        // There is no space for data or its seq number is not expected sequence number. So send packet with rcwd
+        if (estab_sock_info->recvSpace->restSpace < dataSize || estab_sock_info->recvSpace->expect_seq != seq_num) {
+          ack_received_packet(packet, estab_sock_info);
+          return;
+        }
+        packet->readData(DATA_OFFSET, &estab_sock_info->recvSpace->buffer, dataSize);
+        estab_sock_info->recvSpace->restSpace -= dataSize;
+        estab_sock_info->recvSpace->bufferStatus = BufferStatus::BUFFERFILLED;
+        Packet *recv_pkt = (Packet *) malloc(sizeof(Packet));
+        recv_pkt = packet;
+        estab_sock_info->recvSpace->recv_pkt = recv_pkt;
       }
       return;
     }
@@ -971,7 +1014,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       printf("In handleSynAckPacket, can't allocate memory\n");
       return;
     }
-    printf("finish allocate recvSpace & sendSpace\n");
     sock_info->recvSpace->bufferStatus = BufferStatus::NORMAL;
     sock_info->recvSpace->waitBuffer = NULL;
     sock_info->recvSpace->waitLen = 0;
@@ -979,6 +1021,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     sock_info->recvSpace->restSpace = BUFFER_SIZE;
     sock_info->recvSpace->expect_seq = get_seq_number(packet);
     sock_info->recvSpace->recv_base = 0;
+    sock_info->recvSpace->recv_pkt = NULL;
     parent_sock_info->child_sock_list->push_back(sock_info);
 
     if (accept_queue.size() > 0) {
@@ -1002,7 +1045,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 }
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
-  // printf("packetArrived!\n");
   if (isSynAckPacket(&packet)) {
     return handleSynAckPacket(fromModule, &packet);
   } else if (isSynPacket(&packet)) {
