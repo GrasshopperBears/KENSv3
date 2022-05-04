@@ -831,7 +831,7 @@ void cloneSockInfo(struct sock_info* dst, struct sock_info* src) {
   dst->backlog_list = NULL;
   dst->child_sock_list = NULL;
   dst->fd = -1;
-  memcpy(dst->my_sockaddr, src->my_sockaddr, sizeof(struct kens_sockaddr_in));
+  // memcpy(dst->my_sockaddr, src->my_sockaddr, sizeof(struct kens_sockaddr_in));
   dst->parent_sock = src;
   dst->pid = src->pid;
   dst->status = Status::SYN_RCVD;
@@ -977,6 +977,11 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
     cloneSockInfo(new_sock_info, sock_info);
 
+    new_sock_info->my_sockaddr->sin_addr = income_dst_ip;
+    new_sock_info->my_sockaddr->sin_port = income_dst_port;
+    new_sock_info->my_sockaddr->sin_len = sizeof(struct sockaddr_in);
+    new_sock_info->my_sockaddr->sin_family = AF_INET;
+
     new_sock_info->peer_sockaddr->sin_addr = income_src_ip;
     new_sock_info->peer_sockaddr->sin_port = income_src_port;
     new_sock_info->peer_sockaddr->sin_len = sizeof(struct sockaddr_in);
@@ -1037,14 +1042,13 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 
   // If there is ESTAB sock_info, run this code.
   if (estab_sock_info != NULL) {
+    // handle read
     dataSize = packet->getSize() - DATA_OFFSET;
     uint32_t seq_num = get_seq_number(packet);
     uint32_t ack_num = get_ack_number(packet);
-    // No data Packet
-    if (dataSize <= 0)
-      return;
-    
-    else { // Handle Data Packet (Receive)
+
+    // When data exist
+    if (dataSize > 0) { // Handle Data Packet (Receive)
       if (estab_sock_info->recvSpace->bufferStatus == BufferStatus::WAITING) {
         // There is no space for data or its seq number is not expected sequence number. So send packet with rcwd
         if (estab_sock_info->recvSpace->restSpace < dataSize || estab_sock_info->recvSpace->expect_seq != seq_num) {
@@ -1098,21 +1102,16 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       }
       return;
     }
-  }
 
-  if ((*itr)->status == Status::ESTAB) {
-    // printf("ack arrive\n");
+    // handle write
+    sock_info = estab_sock_info;
     bool acked = false;
-    uint32_t seq_num = get_seq_number(packet);
-    uint32_t ack_num = get_ack_number(packet);
-    sock_info = *itr;
 
     for (packet_node_itr = sock_info->sendSpace->sent_packet_list->begin();
           packet_node_itr != sock_info->sendSpace->sent_packet_list->end(); ) {
       PacketNode *packetNode = *packet_node_itr;
       if (packetNode->seq_num < ack_num) {
         memset(packetNode->buffer_ptr, 0, packetNode->buffer_size);
-        // packetNode->packet->clearContext();
         free(packetNode);
         packet_node_itr = sock_info->sendSpace->sent_packet_list->erase(packet_node_itr);
         acked = true;
@@ -1123,10 +1122,12 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       syscall_queue_itr write_queue_itr = sock_info->sendSpace->waiting_write_list->begin();
       struct SyscallQueueItem *writeQueueItem = *write_queue_itr;
       sock_info->sendSpace->waiting_write_list->erase(write_queue_itr);
-      // printf("next write pending\n");
       writeHandler(writeQueueItem->syscallUUID, writeQueueItem->pid, writeQueueItem);
     }
-  } else if (parent_sock_info->status == Status::LISTEN) {
+    return;
+  }
+
+  if (parent_sock_info->status == Status::LISTEN) {
     if (parent_sock_info->backlog_list->size() == 0) { return; }
 
     // Filter by client IP and port
