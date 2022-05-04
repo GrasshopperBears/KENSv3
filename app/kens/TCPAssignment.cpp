@@ -1187,7 +1187,23 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   }
 }
 
+bool isValidPacket(Packet *packet) {
+  uint16_t income_src_port, income_dst_port;
+  uint32_t income_src_ip, income_dst_ip;
+  uint64_t packet_length = packet->getSize() - SEGMENT_OFFSET;
+  char buffer[packet_length];
+
+  getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+  packet->readData(SEGMENT_OFFSET, buffer, packet_length);
+
+  uint16_t checksum = NetworkUtil::tcp_sum(income_src_ip, income_dst_ip, (uint8_t *)buffer, packet_length);
+
+  return checksum == 0xFFFF;
+}
+
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
+  if (!isValidPacket(&packet)) { return; }
+
   if (isSynAckPacket(&packet)) {
     return handleSynAckPacket(fromModule, &packet);
   } else if (isSynPacket(&packet)) {
