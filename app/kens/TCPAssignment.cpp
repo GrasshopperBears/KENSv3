@@ -1001,7 +1001,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   Packet packet_to_client = packet->clone();
   struct sock_info *sock_info, *parent_sock_info, *estab_sock_info = NULL;
   struct SyscallQueueItem *accept_queue_item;
-  sock_info_itr itr;
+  sock_info_itr itr, parent_sock_itr;
   syscall_queue_itr accept_queue_itr;
   packet_node_itr packet_node_itr;
   size_t dataSize = -1;
@@ -1024,13 +1024,13 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     estab_sock_info = parent_sock_info;
   }
   else if (parent_sock_info->status == Status::LISTEN) {
-    for (itr = parent_sock_info->child_sock_list->begin(); itr != parent_sock_info->child_sock_list->end(); ++itr) {
-      sock_info = *itr;
+    for (parent_sock_itr = parent_sock_info->child_sock_list->begin(); parent_sock_itr != parent_sock_info->child_sock_list->end(); ++parent_sock_itr) {
+      sock_info = *parent_sock_itr;
       if (isTargetSock(sock_info->peer_sockaddr, income_src_ip, income_src_port, true)) {
         break;
       }
     }
-    if (itr != parent_sock_info->child_sock_list->end()) {
+    if (parent_sock_itr != parent_sock_info->child_sock_list->end()) {
       estab_sock_info = sock_info;
     }
   }
