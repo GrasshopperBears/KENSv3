@@ -43,6 +43,7 @@ protected:
   virtual void handleAckPacket(std::string fromModule, Packet *packet) final;
   virtual void packetArrived(std::string fromModule, Packet &&packet) final;
   virtual void setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) final;
+  virtual void ack_received_packet(Packet *packet, struct sock_info *sock_info) final;
 };
 
 class TCPAssignmentProvider {
