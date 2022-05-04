@@ -446,6 +446,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       free(sock_info->recvSpace->recv_pkt);
     if (sock_info->recvSpace != NULL)
       free(sock_info->recvSpace);
+    
+    // TODO: cleanup sendSpace
     if (sock_info->sendSpace != NULL)
       free(sock_info->sendSpace);
     free(sock_info);
@@ -546,7 +548,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     memcpy(writeQueueItem->write_buffer, param_write_buffer, writeLen);
     writeQueueItem->writeLen = writeLen;
 
-    writeHandler(syscallUUID, pid, writeQueueItem);
+    return writeHandler(syscallUUID, pid, writeQueueItem);
   }
   case CONNECT: {
     // this->syscall_connect(
