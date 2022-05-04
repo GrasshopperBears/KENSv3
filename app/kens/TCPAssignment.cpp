@@ -51,6 +51,10 @@ struct sock_info {
   struct SendSpace* sendSpace;
   uint32_t my_seq_base;
   uint32_t peer_seq_base;
+  UUID timer;
+  std::chrono::_V2::system_clock::time_point last_sent;
+  long estimated_rtt;
+  long dev_rtt;
 };
 
 struct kens_sockaddr_in {
@@ -258,6 +262,24 @@ struct kens_sockaddr_in* get_new_sockaddr_in(uint32_t ip, uint16_t port) {
   return addr;
 }
 
+void TCPAssignment::update_rtt(sock_info *sock_info) {
+  if (sock_info->timer == 0) { return; }
+
+  auto current = std::chrono::high_resolution_clock::now();
+  auto last_rtt = std::chrono::duration_cast<std::chrono::nanoseconds>(current - current).count();
+  sock_info->dev_rtt = 0.75 * sock_info->dev_rtt + 0.25 * std::abs(last_rtt - sock_info->estimated_rtt);
+  sock_info->estimated_rtt = 0.875 * sock_info->estimated_rtt + 0.125 * last_rtt;
+  cancelTimer(sock_info->timer);
+  sock_info->timer = 0;
+}
+
+void TCPAssignment::add_sock_timer(sock_info *sock_info, void *payload) {
+  if (sock_info->timer != 0) { return; }
+
+  sock_info->last_sent = std::chrono::high_resolution_clock::now();
+  sock_info->timer = addTimer(payload, sock_info->estimated_rtt + 4 * sock_info->dev_rtt);
+}
+
 void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
                                   SystemCallParameter *param) {
   int fd = std::get<int>(param->params[0]);
@@ -419,6 +441,9 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     sock_info->backlog_list = new std::list<struct sock_info*>();
     sock_info->recvSpace = NULL;
     sock_info->sendSpace = NULL;
+    sock_info->timer = 0;
+    sock_info->estimated_rtt = 100 * 1000;  // 100ms
+    sock_info->dev_rtt = 0;
     sock_table.push_back(sock_info);
 
     returnSystemCall(syscallUUID, fd);
