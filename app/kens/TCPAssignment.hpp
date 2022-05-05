@@ -34,8 +34,8 @@ public:
   virtual ~TCPAssignment();
 
 protected:
-  virtual void update_rtt(sock_info *sock_info) final;
-  virtual void add_sock_timer(sock_info *sock_info, void *payload) final;
+  virtual void update_rtt(struct sock_info *sock_info) final;
+  virtual void add_sock_timer(struct sock_info *sock_info, Packet pkt) final;
   virtual void acceptHandler(UUID syscallUUID, int pid, SystemCallParameter *param) final;
   virtual void writeHandler(UUID syscallUUID, int pid, SyscallQueueItem *writeQueueItem) final;
   virtual void systemCallback(UUID syscallUUID, int pid,

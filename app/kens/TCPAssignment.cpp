@@ -55,6 +55,7 @@ struct sock_info {
   E::Time last_sent;
   long estimated_rtt;
   long dev_rtt;
+  Packet past_pkt;
 };
 
 struct kens_sockaddr_in {
@@ -262,22 +263,45 @@ struct kens_sockaddr_in* get_new_sockaddr_in(uint32_t ip, uint16_t port) {
   return addr;
 }
 
-void TCPAssignment::update_rtt(sock_info *sock_info) {
-  if (sock_info->timer == 0) { return; }
-
-  auto current = std::chrono::high_resolution_clock::now();
-  auto last_rtt = std::chrono::duration_cast<std::chrono::nanoseconds>(current - current).count();
-  sock_info->dev_rtt = 0.75 * sock_info->dev_rtt + 0.25 * std::abs(last_rtt - sock_info->estimated_rtt);
+void TCPAssignment::update_rtt(struct sock_info *sock_info) {
+  if (sock_info->timer == 0) {
+    printf("update_rtt return! (sock_info->timer == 0)\n");
+    return; 
+  }
+  printf("update_rtt run\n");
+  Time current = getCurrentTime();
+  Time last_rtt = current - sock_info->last_sent;
+  sock_info->dev_rtt = 0.75 * sock_info->dev_rtt + 0.25 * std::abs(long(last_rtt - sock_info->estimated_rtt));
   sock_info->estimated_rtt = 0.875 * sock_info->estimated_rtt + 0.125 * last_rtt;
+  // if (sock_info->past_pkt != NULL)
+  //   free(sock_info->past_pkt);
   cancelTimer(sock_info->timer);
   sock_info->timer = 0;
 }
 
-void TCPAssignment::add_sock_timer(sock_info *sock_info, void *payload) {
-  if (sock_info->timer != 0) { return; }
-
-  sock_info->last_sent = HostModule::getCurrentTime();
-  sock_info->timer = addTimer(payload, sock_info->estimated_rtt + 4 * sock_info->dev_rtt);
+void TCPAssignment::add_sock_timer(struct sock_info *sock_info, Packet pkt) {
+  if (sock_info->timer != 0) {
+    printf("addsocktimer return! (sock_info->timer != 0)\n");
+    return;
+  }
+  printf("addsocktimer run\n");
+  sock_info->last_sent = getCurrentTime();
+  sock_info->timer = addTimer(sock_info, sock_info->estimated_rtt + 4 * sock_info->dev_rtt);
+  // Packet *_pkt = (Packet *) malloc(sizeof(pkt));
+  // size_t pktSize = pkt.getSize();
+  // Packet *_pkt (pktSize);
+  printf("addsocktimer: pkt clone before\n");
+  // size_t pktSize = pkt.getSize();
+  // char tmp[pktSize];
+  // pkt.readData(0, &tmp, pktSize);
+  // Packet newPkt (pktSize);
+  // newPkt.writeData(0, &tmp, pktSize);
+  // *_pkt = pkt.clone();
+  // *_pkt = pkt;
+  // *_pkt = newPkt;
+  printf("addsocktimer: pkt clone after\n");
+  sock_info->past_pkt = pkt;
+  printf("In add timer, seq: %u\n", get_seq_number(&sock_info->past_pkt));
 }
 
 void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
@@ -657,6 +681,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     sendPacket("IPv4", std::move(synPkt));
     sock_info->status = Status::SYN_SENT;
+    printf("In connect, send pkt and add timer\n");
+    add_sock_timer(sock_info, synPkt);
     break;
   }
   case LISTEN: {
@@ -860,6 +886,7 @@ void cloneSockInfo(struct sock_info* dst, struct sock_info* src) {
   dst->parent_sock = src;
   dst->pid = src->pid;
   dst->status = Status::SYN_RCVD;
+  // dst->past_pkt = src->past_pkt;
 }
 
 bool isTargetSock(struct kens_sockaddr_in *sockaddr_in, uint32_t target_ip, uint16_t target_port, bool strict = false) {
@@ -892,6 +919,8 @@ void TCPAssignment::ack_received_packet(Packet *packet, struct sock_info *sock_i
   set_packet_checksum(&ackPkt, income_dst_ip, income_src_ip);
 
   sendPacket("IPv4", std::move(ackPkt));
+  printf("In ack_received packet, send pkt and add timer\n");
+  add_sock_timer(sock_info, *packet);
 }
 
 void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
@@ -915,6 +944,8 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   if (itr == sock_table.end()) {
     return;
   }
+
+  update_rtt(sock_info);
 
   if (sock_info->status == Status::SYN_SENT) {
     sock_info->status = Status::ESTAB;
@@ -950,6 +981,8 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->peer_seq_base = get_ack_number(&response_packet);
 
     sendPacket("IPv4", std::move(response_packet));
+    printf("In handleSYNACKpkt && status::SYN_SENT, send pkt and add timer\n");
+    add_sock_timer(sock_info, response_packet);
     returnSystemCall(sock_info->connect_syscallUUID, 0);
     sock_info->connect_syscallUUID = 0;
     return;
@@ -1020,6 +1053,9 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
     set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
 
     sendPacket("IPv4", std::move(response_packet));
+    printf("In handleSYNpkt && status::Listen, send pkt and add timer\n");
+    // add_sock_timer(sock_info, response_packet); If this code run, test-close-unreliable pass
+    add_sock_timer(new_sock_info, response_packet);
   }
 
   return;
@@ -1046,9 +1082,9 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       break;
     }
   }
-
+  printf("ack pkt recv\n");
   if (itr == sock_table.end()) { return; }
-
+  update_rtt(parent_sock_info);
   // If there is ESTAB sock_info, allocate it as `estab_sock_info`
   if (parent_sock_info->status == Status::ESTAB) {
     estab_sock_info = parent_sock_info;
@@ -1067,6 +1103,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 
   // If there is ESTAB sock_info, run this code.
   if (estab_sock_info != NULL) {
+    update_rtt(estab_sock_info);
     // handle read
     dataSize = packet->getSize() - DATA_OFFSET;
     uint32_t seq_num = get_seq_number(packet);
@@ -1153,6 +1190,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   }
 
   if (parent_sock_info->status == Status::LISTEN) {
+    update_rtt(parent_sock_info);
     if (parent_sock_info->backlog_list->size() == 0) { return; }
 
     // Filter by client IP and port
@@ -1209,6 +1247,8 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     set_packet_checksum(&packet_to_client, income_dst_ip, income_src_ip);
     
     sendPacket("IPv4", std::move(packet_to_client));
+    printf("In handleACK && status::Listen, send pkt and add timer\n");
+    add_sock_timer(sock_info, packet_to_client);
   }
 }
 
@@ -1239,6 +1279,12 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
+  printf("timer callback!!\n");
+  struct sock_info *sock_info = std::any_cast<struct sock_info *>(payload);
+  printf("In timercallback, seq: %u\n", get_seq_number(&sock_info->past_pkt));
+  sendPacket("IPv4", std::move(sock_info->past_pkt));
+  sock_info->last_sent = getCurrentTime();
+  sock_info->timer = addTimer(sock_info, sock_info->estimated_rtt + 4 * sock_info->dev_rtt);
 }
 
 } // namespace E
