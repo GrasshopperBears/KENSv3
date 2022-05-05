@@ -273,8 +273,6 @@ void TCPAssignment::update_rtt(struct sock_info *sock_info) {
   Time last_rtt = current - sock_info->last_sent;
   sock_info->dev_rtt = 0.75 * sock_info->dev_rtt + 0.25 * std::abs(long(last_rtt - sock_info->estimated_rtt));
   sock_info->estimated_rtt = 0.875 * sock_info->estimated_rtt + 0.125 * last_rtt;
-  // if (sock_info->past_pkt != NULL)
-  //   free(sock_info->past_pkt);
   cancelTimer(sock_info->timer);
   sock_info->timer = 0;
 }
@@ -287,19 +285,8 @@ void TCPAssignment::add_sock_timer(struct sock_info *sock_info, Packet pkt) {
   printf("addsocktimer run\n");
   sock_info->last_sent = getCurrentTime();
   sock_info->timer = addTimer(sock_info, sock_info->estimated_rtt + 4 * sock_info->dev_rtt);
-  // Packet *_pkt = (Packet *) malloc(sizeof(pkt));
-  // size_t pktSize = pkt.getSize();
-  // Packet *_pkt (pktSize);
-  printf("addsocktimer: pkt clone before\n");
-  // size_t pktSize = pkt.getSize();
-  // char tmp[pktSize];
-  // pkt.readData(0, &tmp, pktSize);
-  // Packet newPkt (pktSize);
-  // newPkt.writeData(0, &tmp, pktSize);
-  // *_pkt = pkt.clone();
-  // *_pkt = pkt;
-  // *_pkt = newPkt;
-  printf("addsocktimer: pkt clone after\n");
+  // printf("addsocktimer: pkt clone before\n");
+  // printf("addsocktimer: pkt clone after\n");
   sock_info->past_pkt = pkt;
   printf("In add timer, seq: %u\n", get_seq_number(&sock_info->past_pkt));
 }
@@ -944,7 +931,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   if (itr == sock_table.end()) {
     return;
   }
-
+  printf("In handleSYNACK, update_rtt\n");
   update_rtt(sock_info);
 
   if (sock_info->status == Status::SYN_SENT) {
@@ -982,7 +969,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
 
     sendPacket("IPv4", std::move(response_packet));
     printf("In handleSYNACKpkt && status::SYN_SENT, send pkt and add timer\n");
-    add_sock_timer(sock_info, response_packet);
+    // add_sock_timer(sock_info, response_packet);
     returnSystemCall(sock_info->connect_syscallUUID, 0);
     sock_info->connect_syscallUUID = 0;
     return;
@@ -1055,7 +1042,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
     sendPacket("IPv4", std::move(response_packet));
     printf("In handleSYNpkt && status::Listen, send pkt and add timer\n");
     // add_sock_timer(sock_info, response_packet); If this code run, test-close-unreliable pass
-    add_sock_timer(new_sock_info, response_packet);
+    // add_sock_timer(new_sock_info, response_packet);
   }
 
   return;
@@ -1084,6 +1071,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   }
   printf("ack pkt recv\n");
   if (itr == sock_table.end()) { return; }
+  printf("In handleAck, update_rtt parent_sock_info\n");
   update_rtt(parent_sock_info);
   // If there is ESTAB sock_info, allocate it as `estab_sock_info`
   if (parent_sock_info->status == Status::ESTAB) {
@@ -1103,6 +1091,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 
   // If there is ESTAB sock_info, run this code.
   if (estab_sock_info != NULL) {
+    printf("In estab_sock_info, update_rtt!\n");
     update_rtt(estab_sock_info);
     // handle read
     dataSize = packet->getSize() - DATA_OFFSET;
@@ -1190,7 +1179,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   }
 
   if (parent_sock_info->status == Status::LISTEN) {
-    update_rtt(parent_sock_info);
     if (parent_sock_info->backlog_list->size() == 0) { return; }
 
     // Filter by client IP and port
@@ -1203,7 +1191,8 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     if (itr == parent_sock_info->backlog_list->end()) { return; }
     
     parent_sock_info->backlog_list->erase(itr);
-
+    printf("In hanldACK & status::Listen, update_rtt(sock_info)\n");
+    update_rtt(sock_info);
     sock_info->status = Status::ESTAB;
     if ((sock_info->recvSpace = (struct RecvSpace *) malloc(sizeof(struct RecvSpace))) == NULL) {
       printf("Error: In handleSynAckPacket, can't allocate memory\n");
@@ -1248,7 +1237,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     
     sendPacket("IPv4", std::move(packet_to_client));
     printf("In handleACK && status::Listen, send pkt and add timer\n");
-    add_sock_timer(sock_info, packet_to_client);
+    // add_sock_timer(sock_info, packet_to_client);
   }
 }
 
@@ -1279,7 +1268,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
-  printf("timer callback!!\n");
+  // printf("timer callback!!\n");
   struct sock_info *sock_info = std::any_cast<struct sock_info *>(payload);
   printf("In timercallback, seq: %u\n", get_seq_number(&sock_info->past_pkt));
   sendPacket("IPv4", std::move(sock_info->past_pkt));
