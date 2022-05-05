@@ -63,6 +63,21 @@
       "osx": {
         "MIMode": "lldb"
       }
+    },
+    {
+      "name": "Debug kens: testtransfer-unreliable",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/app/kens/test-kens-transfer-unreliable",
+      "cwd": "${workspaceFolder}",
+      "externalConsole": false,
+      "logging": {
+        "moduleLoad": false,
+        "trace": true
+      },
+      "osx": {
+        "MIMode": "lldb"
+      }
     }
   ]
 }
