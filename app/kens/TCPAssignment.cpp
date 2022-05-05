@@ -91,7 +91,7 @@ struct RecvSpace {
   int restSpace;
   uint32_t expect_seq;
   uint32_t recv_base;
-  Packet *recv_pkt;
+  Packet recv_pkt;
 };
 
 struct PacketNode {
@@ -473,8 +473,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       free(sock_info->my_sockaddr);
     if (sock_info->peer_sockaddr != NULL)
       free(sock_info->peer_sockaddr);
-    if (sock_info->recvSpace != NULL && sock_info->recvSpace->recv_pkt != NULL)
-      free(sock_info->recvSpace->recv_pkt);
     if (sock_info->recvSpace != NULL)
       free(sock_info->recvSpace);
     
@@ -547,9 +545,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
         sock_info->recvSpace->recv_base = 0;
       }
       sock_info->recvSpace->bufferStatus = BufferStatus::NORMAL;
-      ack_received_packet(sock_info->recvSpace->recv_pkt, sock_info);
-      free(sock_info->recvSpace->recv_pkt);
-      sock_info->recvSpace->recv_pkt = NULL;
+      ack_received_packet(&sock_info->recvSpace->recv_pkt, sock_info);
     }
     else {
       sock_info->recvSpace->bufferStatus = BufferStatus::WAITING;
@@ -663,7 +659,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     sendPacket("IPv4", std::move(synPkt));
     sock_info->status = Status::SYN_SENT;
-    printf("In connect, send pkt and add timer\n");
     add_sock_timer(sock_info, synPkt);
     break;
   }
@@ -901,7 +896,6 @@ void TCPAssignment::ack_received_packet(Packet *packet, struct sock_info *sock_i
   set_packet_checksum(&ackPkt, income_dst_ip, income_src_ip);
 
   sendPacket("IPv4", std::move(ackPkt));
-  add_sock_timer(sock_info, *packet);
 }
 
 void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
@@ -952,7 +946,6 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->recvSpace->expect_seq = get_seq_number(packet);
     sock_info->recvSpace->recv_base = 0;
     sock_info->recvSpace->expect_seq += 1;
-    sock_info->recvSpace->recv_pkt = NULL;
   
     set_packet_flags(&response_packet, TH_ACK);
     set_handshake_seqack_number(packet, &response_packet, TH_ACK);
@@ -1062,8 +1055,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 
   if (itr == sock_table.end()) { return; }
 
-  update_rtt(parent_sock_info);
-
   // If there is ESTAB sock_info, allocate it as `estab_sock_info`
   if (parent_sock_info->status == Status::ESTAB) {
     estab_sock_info = parent_sock_info;
@@ -1082,6 +1073,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
 
   // If there is ESTAB sock_info, run this code.
   if (estab_sock_info != NULL) {
+    update_rtt(estab_sock_info);
     // handle read
     dataSize = packet->getSize() - DATA_OFFSET;
     uint32_t seq_num = get_seq_number(packet);
@@ -1136,9 +1128,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
         packet->readData(DATA_OFFSET, &estab_sock_info->recvSpace->buffer, dataSize);
         estab_sock_info->recvSpace->restSpace -= dataSize;
         estab_sock_info->recvSpace->bufferStatus = BufferStatus::BUFFERFILLED;
-        Packet *recv_pkt = (Packet *) malloc(sizeof(Packet));
-        recv_pkt = packet;
-        estab_sock_info->recvSpace->recv_pkt = recv_pkt;
+        estab_sock_info->recvSpace->recv_pkt = *packet;
       }
       return;
     }
@@ -1168,6 +1158,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
   }
 
   if (parent_sock_info->status == Status::LISTEN) {
+    update_rtt(parent_sock_info);
     if (parent_sock_info->backlog_list->size() == 0) { return; }
 
     // Filter by client IP and port
@@ -1203,7 +1194,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     sock_info->recvSpace->restSpace = BUFFER_SIZE;
     sock_info->recvSpace->expect_seq = get_seq_number(packet);
     sock_info->recvSpace->recv_base = 0;
-    sock_info->recvSpace->recv_pkt = NULL;
     parent_sock_info->child_sock_list->push_back(sock_info);
 
     if (accept_queue.size() > 0) {
