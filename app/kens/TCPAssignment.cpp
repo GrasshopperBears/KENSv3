@@ -52,7 +52,7 @@ struct sock_info {
   uint32_t my_seq_base;
   uint32_t peer_seq_base;
   UUID timer;
-  std::chrono::_V2::system_clock::time_point last_sent;
+  E::Time last_sent;
   long estimated_rtt;
   long dev_rtt;
 };
@@ -276,7 +276,7 @@ void TCPAssignment::update_rtt(sock_info *sock_info) {
 void TCPAssignment::add_sock_timer(sock_info *sock_info, void *payload) {
   if (sock_info->timer != 0) { return; }
 
-  sock_info->last_sent = std::chrono::high_resolution_clock::now();
+  sock_info->last_sent = HostModule::getCurrentTime();
   sock_info->timer = addTimer(payload, sock_info->estimated_rtt + 4 * sock_info->dev_rtt);
 }
 
