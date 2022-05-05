@@ -48,6 +48,13 @@ struct sock_info {
   UUID connect_syscallUUID;
   struct RecvSpace* recvSpace;
   struct SendSpace* sendSpace;
+  Packet *past_packet;
+  UUID timer_id;
+  uint64_t sampleRTT;
+  uint64_t estimatedRTT;
+  uint64_t devRTT;
+  uint64_t timeout_interval;
+  Time send_time;
 };
 
 struct kens_sockaddr_in {
@@ -287,6 +294,28 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
   return;
 }
 
+void TCPAssignment::start_timer(struct sock_info *sock_info, Packet pkt) {
+  sock_info->send_time = getCurrentTime();
+
+  // Packet *past_packet = (Packet *) malloc(sizeof(Packet));
+  // past_packet = pkt;
+  // sock_info->past_packet = &pkt;
+
+  sock_info->timer_id = TimerModule::addTimer(sock_info, sock_info->timeout_interval);
+}
+
+void TCPAssignment::cancel_timer(struct sock_info *sock_info) {
+  if (sock_info->timer_id != 0)
+    cancelTimer(sock_info->timer_id);
+  // if (sock_info->past_packet != NULL)
+  //   free(sock_info->past_packet);
+
+  sock_info->sampleRTT = getCurrentTime() - sock_info->send_time;
+  sock_info->estimatedRTT = (uint64_t) (0.875 * sock_info->estimatedRTT + 0.125 * sock_info->sampleRTT);
+  sock_info->devRTT = (uint64_t) (0.75 * sock_info->devRTT + 0.25 * abs(sock_info->sampleRTT - sock_info->estimatedRTT));
+  sock_info->timeout_interval = sock_info->estimatedRTT + 4 * sock_info->devRTT;
+}
+
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
                                    const SystemCallParameter &param) {
   switch (param.syscallNumber) {
@@ -312,6 +341,11 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     sock_info->backlog_list = new std::list<struct sock_info*>();
     sock_info->recvSpace = NULL;
     sock_info->sendSpace = NULL;
+    sock_info->timer_id = 0;
+    sock_info->sampleRTT = 100;
+    sock_info->estimatedRTT = 100;
+    sock_info->devRTT = 100;
+    sock_info->timeout_interval = 500;
     sock_table.push_back(sock_info);
 
     returnSystemCall(syscallUUID, fd);
@@ -341,6 +375,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
       free(sock_info->recvSpace);
     if (sock_info->sendSpace != NULL)
       free(sock_info->sendSpace);
+    // if (sock_info->past_packet != NULL)
+    //   free(sock_info->past_packet);
     free(sock_info);
 
     struct UsingResourceInfo* using_resource_info;
@@ -531,6 +567,10 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     set_packet_checksum(&synPkt, myIp, param_addr->sin_addr.s_addr);
 
+    sock_info->past_packet = &synPkt;
+    sock_info->past_packet->readData(SEGMENT_OFFSET+4, &src_ip, 4);
+    // start_timer(sock_info, synPkt);
+    sock_info->timer_id = TimerModule::addTimer(sock_info, sock_info->timeout_interval);
     sendPacket("IPv4", std::move(synPkt));
     sock_info->status = Status::SYN_SENT;
     break;
@@ -778,7 +818,6 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   struct sock_info *sock_info;
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
-  setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
 
   for (itr = sock_table.begin(); itr != sock_table.end(); ++itr) {
     sock_info = *itr;
@@ -791,6 +830,10 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   if (itr == sock_table.end()) {
     return;
   }
+
+  // cancel_timer(sock_info);
+
+  setPacketSrcDst(&response_packet, &income_dst_ip, &income_dst_port, &income_src_ip, &income_src_port);
 
   if (sock_info->status == Status::SYN_SENT) {
     sock_info->status = Status::ESTAB;
@@ -1055,6 +1098,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
+  printf("timer Callback!!\n");
 }
 
 } // namespace E

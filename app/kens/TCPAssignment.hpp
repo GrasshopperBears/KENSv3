@@ -33,6 +33,8 @@ public:
 
 protected:
   virtual void acceptHandler(UUID syscallUUID, int pid, SystemCallParameter *param) final;
+  virtual void start_timer(struct sock_info *sock_info, Packet pkt) final;
+  virtual void cancel_timer(struct sock_info *sock_info) final;
   virtual void systemCallback(UUID syscallUUID, int pid,
                               const SystemCallParameter &param) final;
   virtual void handleSynAckPacket(std::string fromModule, Packet *packet) final;
