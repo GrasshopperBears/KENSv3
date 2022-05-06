@@ -29,6 +29,11 @@ enum Status {
   SYN_SENT,
   ESTAB
 };
+
+enum TimerType {
+  HANDSHAKE,
+  SENT
+};
 // ------------------enums end------------------
 
 // ----------------structs start----------------
@@ -39,11 +44,6 @@ struct RWQueueItem {
   int fd;
   char* buffer;
   int len;
-};
-
-struct SentInfo {
-  uint32_t seq;
-  UUID timer_id;
 };
 
 struct SendSpace {
@@ -57,7 +57,6 @@ struct SendSpace {
   uint32_t next_data_seq;
   char *write_from;
   uint32_t write_seq;
-  std::list<SentInfo *>* sent_packet_list;
 };
 
 struct RecvSpace {
@@ -69,8 +68,6 @@ struct RecvSpace {
   uint32_t next_ret_seq;
   char *rcvd;
   uint32_t rcvd_seq;
-  // char *write_from;
-  // uint32_t write_seq;
 };
 
 struct sock_info {
@@ -86,6 +83,7 @@ struct sock_info {
   UUID connect_syscallUUID;
   SendSpace *send_space;
   RecvSpace *recv_space;
+  UUID handshake_timer;
 };
 
 struct kens_sockaddr_in {
@@ -123,6 +121,7 @@ using sock_info_itr = typename std::list<struct sock_info*>::iterator;
 using accept_queue_itr = typename std::list<struct AcceptQueueItem*>::iterator;
 using rw_queue_itr = typename std::list<struct RWQueueItem*>::iterator;
 using using_resource_itr = typename std::list<struct UsingResourceInfo*>::iterator;
+using TimerPayload = typename std::tuple<TimerType, struct sock_info*, Packet>;
 
 TCPAssignment::TCPAssignment(Host &host)
     : HostModule("TCP", host), RoutingInfoInterface(host),
@@ -481,7 +480,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     if (sock_info->send_space != NULL) {
       delete sock_info->send_space->waiting_write_list;
-      delete sock_info->send_space->sent_packet_list;
       free(sock_info->send_space);
     }
     if (sock_info->recv_space != NULL) {
@@ -628,7 +626,12 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     set_packet_checksum(&synPkt, myIp, param_addr->sin_addr.s_addr);
 
-    sendPacket("IPv4", std::move(synPkt));
+    sendPacket("IPv4", std::move(synPkt.clone()));
+
+    std::tuple<TimerType, struct sock_info*, Packet> payload =
+      std::make_tuple(TimerType::HANDSHAKE, sock_info, synPkt);
+    sock_info->handshake_timer = addTimer(payload, 1500 * 1000);
+
     sock_info->status = Status::SYN_SENT;
     break;
   }
@@ -867,6 +870,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
 
   if (sock_info->status == Status::SYN_SENT) {
     sock_info->status = Status::ESTAB;
+    cancelTimer(sock_info->handshake_timer);
 
     sock_info->send_space = (SendSpace *) malloc(sizeof(struct SendSpace));
 
@@ -878,7 +882,6 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->send_space->write_from = sock_info->send_space->buffer;
     sock_info->send_space->write_seq = sock_info->send_space->base_seq;
     sock_info->send_space->waiting_write_list = new std::list<struct RWQueueItem*>();
-    sock_info->send_space->sent_packet_list = new std::list<struct SentInfo*>();
 
     set_packet_flags(&response_packet, TH_ACK);
     set_seq_ack_number(packet, &response_packet, TH_ACK);
@@ -965,7 +968,11 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
     set_seq_ack_number(packet, &response_packet, TH_ACK | TH_SYN);
     set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
 
-    sendPacket("IPv4", std::move(response_packet));
+    sendPacket("IPv4", std::move(response_packet.clone()));
+
+    std::tuple<TimerType, struct sock_info*, Packet> payload =
+      std::make_tuple(TimerType::HANDSHAKE, new_sock_info, response_packet);
+    new_sock_info->handshake_timer = addTimer(payload, 1500 * 1000);
   }
 
   return;
@@ -997,7 +1004,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     estab_sock_info = parent_sock_info;
   }
   else if (parent_sock_info->status == Status::LISTEN) {
-    for (estab_sock_itr = parent_sock_info->child_sock_list->begin(); estab_sock_itr != parent_sock_info->child_sock_list->end(); ++parent_sock_itr) {
+    for (estab_sock_itr = parent_sock_info->child_sock_list->begin(); estab_sock_itr != parent_sock_info->child_sock_list->end(); ++estab_sock_itr) {
       sock_info = *estab_sock_itr;
       if (isTargetSock(sock_info->peer_sockaddr, income_src_ip, income_src_port, true)) {
         break;
@@ -1095,6 +1102,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     parent_sock_info->backlog_list->erase(itr);
 
     sock_info->status = Status::ESTAB;
+    cancelTimer(sock_info->handshake_timer);
 
     sock_info->send_space = (SendSpace *) malloc(sizeof(struct SendSpace));
     sock_info->send_space->base_seq = get_ack_number(packet);
@@ -1105,7 +1113,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     sock_info->send_space->write_from = sock_info->send_space->buffer;
     sock_info->send_space->write_seq = sock_info->send_space->base_seq;
     sock_info->send_space->waiting_write_list = new std::list<struct RWQueueItem*>();
-    sock_info->send_space->sent_packet_list = new std::list<struct SentInfo*>();
 
     sock_info->recv_space = (RecvSpace *) malloc(sizeof(struct RecvSpace));
     sock_info->recv_space->base_seq = get_seq_number(packet);
@@ -1114,8 +1121,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     sock_info->recv_space->next_ret_seq = sock_info->recv_space->base_seq;
     sock_info->recv_space->rcvd = sock_info->recv_space->buffer;
     sock_info->recv_space->rcvd_seq = sock_info->recv_space->base_seq;
-    // sock_info->recv_space->write_from = sock_info->recv_space->buffer;
-    // sock_info->recv_space->write_seq = sock_info->recv_space->base_seq;
     sock_info->recv_space->waiting_read_list = new std::list<struct RWQueueItem*>();
 
     parent_sock_info->child_sock_list->push_back(sock_info);
@@ -1151,6 +1156,15 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
+  TimerPayload params = std::any_cast<TimerPayload>(payload);
+  TimerType timer_type = std::get<0>(params);
+  sock_info *sock_info = std::get<1>(params);
+  Packet packet = std::get<2>(params);
+
+  if (timer_type == TimerType::HANDSHAKE) {
+    sendPacket("IPv4", std::move(packet.clone()));
+    sock_info->handshake_timer = addTimer(params, 1500 * 1000);
+  }
 }
 
 } // namespace E
