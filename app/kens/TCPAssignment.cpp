@@ -265,7 +265,7 @@ struct kens_sockaddr_in* get_new_sockaddr_in(uint32_t ip, uint16_t port) {
 }
 
 void TCPAssignment::update_rtt(struct sock_info *sock_info) {
-  printf("update_rtt\n");
+  printf("update_rtt, timer: %u\n", sock_info->timer);
   if (sock_info->timer == 0) {
     printf("update_rtt return! (sock_info->timer == 0)\n");
     return; 
@@ -284,7 +284,7 @@ void TCPAssignment::update_rtt(struct sock_info *sock_info) {
 }
 
 void TCPAssignment::add_sock_timer(struct sock_info *sock_info, Packet pkt) {
-  printf("addsocktimer\n");
+  printf("addsocktimer, fd: %d\n", sock_info->fd);
   if (sock_info->timer != 0) {
     printf("addsocktimer return! \n");
     return;
@@ -880,6 +880,12 @@ void cloneSockInfo(struct sock_info* dst, struct sock_info* src) {
   dst->parent_sock = src;
   dst->pid = src->pid;
   dst->status = Status::SYN_RCVD;
+  dst->timer = 0;
+  dst->recvSpace = NULL;
+  dst->sendSpace = NULL;
+  dst->estimated_rtt = 100 * 1000;  // 100ms
+  dst->dev_rtt = 0;
+  dst->past_pkt = NULL;
   // dst->past_pkt = src->past_pkt;
 }
 
