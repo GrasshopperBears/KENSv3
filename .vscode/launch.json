@@ -48,6 +48,21 @@
       "osx": {
         "MIMode": "lldb"
       }
+    },
+    {
+      "name": "(PA3) testhand-transfer",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/app/kens/test-kens-transfer",
+      "cwd": "${workspaceFolder}",
+      "externalConsole": false,
+      "logging": {
+        "moduleLoad": false,
+        "trace": true
+      },
+      "osx": {
+        "MIMode": "lldb"
+      }
     }
   ]
 }
