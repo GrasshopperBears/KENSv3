@@ -265,7 +265,6 @@ struct kens_sockaddr_in* get_new_sockaddr_in(uint32_t ip, uint16_t port) {
 }
 
 void TCPAssignment::update_rtt(struct sock_info *sock_info) {
-  printf("update_rtt, timer: %u\n", sock_info->timer);
   if (sock_info->timer == 0) {
     printf("update_rtt return! (sock_info->timer == 0)\n");
     return; 
@@ -284,7 +283,6 @@ void TCPAssignment::update_rtt(struct sock_info *sock_info) {
 }
 
 void TCPAssignment::add_sock_timer(struct sock_info *sock_info, Packet pkt) {
-  printf("addsocktimer, fd: %d\n", sock_info->fd);
   if (sock_info->timer != 0) {
     printf("addsocktimer return! \n");
     return;
@@ -350,7 +348,6 @@ void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
 }
 
 void TCPAssignment::writeHandler(UUID syscallUUID, int pid, SyscallQueueItem *writeQueueItem) {
-  // printf("write handler\n");
   int fd = writeQueueItem->fd;
   char* write_buffer = writeQueueItem->write_buffer;
   int writeLen = writeQueueItem->writeLen;
@@ -430,8 +427,8 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, SyscallQueueItem *wr
     sock_info->my_seq_base += writeLen;
 
     sendPacket("IPv4", std::move(senderPacket));
-    // printf("In write handler, send pkt and add timer\n");
-    // add_sock_timer(sock_info, senderPacket);
+    printf("In write handler, send pkt and add timer\n");
+    add_sock_timer(sock_info, senderPacket);
   }
   returnSystemCall(syscallUUID, writeLen);
 }
@@ -507,10 +504,10 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
         break;
       }
     }
-    printf("check delete before\n");
+
     delete sock_info->backlog_list;
     delete sock_info->child_sock_list;
-    printf("check delete after\n");
+
     returnSystemCall(syscallUUID, 0);
     break;
   }
@@ -1179,7 +1176,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       sock_info->sendSpace->waiting_write_list->erase(write_queue_itr);
       writeHandler(writeQueueItem->syscallUUID, writeQueueItem->pid, writeQueueItem);
     }
-    printf("is finished?\n");
+
     return;
   }
 
@@ -1258,7 +1255,6 @@ bool isValidPacket(Packet *packet) {
 }
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
-  printf("pkt arrived!\n");
   if (!isValidPacket(&packet)) { return; }
 
   if (isSynAckPacket(&packet)) {
@@ -1271,9 +1267,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 }
 
 void TCPAssignment::timerCallback(std::any payload) {
-  // printf("timer callback!!\n");
   struct sock_info *sock_info = std::any_cast<struct sock_info *>(payload);
-  // printf("In timercallback\n");
   Packet pkt (sock_info->past_pkt_len);
   pkt.writeData(0, sock_info->past_pkt, sock_info->past_pkt_len);
   sendPacket("IPv4", std::move(pkt));
