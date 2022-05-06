@@ -859,6 +859,28 @@ bool isTargetSock(struct kens_sockaddr_in *sockaddr_in, uint32_t target_ip, uint
           && ((!strict && sockaddr_in->sin_addr == 0) || sockaddr_in->sin_addr == target_ip);
 }
 
+void initSendRcvdSpace(sock_info *sock_info, uint32_t send_base_seq, uint32_t recv_base_seq, uint32_t recv_peer_seq) {
+  sock_info->send_space = (SendSpace *) malloc(sizeof(struct SendSpace));
+  sock_info->send_space->base_seq = send_base_seq;
+  sock_info->send_space->sent_from = sock_info->send_space->buffer;
+  sock_info->send_space->sent_seq = sock_info->send_space->base_seq;
+  sock_info->send_space->next_data = sock_info->send_space->buffer;
+  sock_info->send_space->next_data_seq = sock_info->send_space->base_seq;
+  sock_info->send_space->write_from = sock_info->send_space->buffer;
+  sock_info->send_space->write_seq = sock_info->send_space->base_seq;
+  sock_info->send_space->waiting_write_list = new std::list<struct RWQueueItem*>();
+  sock_info->send_space->sent_packet_list = new std::list<struct SentInfo*>();
+
+  sock_info->recv_space = (RecvSpace *) malloc(sizeof(struct RecvSpace));
+  sock_info->recv_space->base_seq = recv_base_seq;
+  sock_info->recv_space->peer_base_seq = recv_peer_seq;
+  sock_info->recv_space->next_ret = sock_info->recv_space->buffer;
+  sock_info->recv_space->next_ret_seq = sock_info->recv_space->base_seq;
+  sock_info->recv_space->rcvd = sock_info->recv_space->buffer;
+  sock_info->recv_space->rcvd_seq = sock_info->recv_space->base_seq;
+  sock_info->recv_space->waiting_read_list = new std::list<struct RWQueueItem*>();
+}
+
 void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
   uint32_t income_src_ip, income_dst_ip;
   uint16_t income_src_port, income_dst_port;
@@ -885,30 +907,11 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->status = Status::ESTAB;
     cancelTimer(sock_info->handshake_timer);
 
-    sock_info->send_space = (SendSpace *) malloc(sizeof(struct SendSpace));
-
-    sock_info->send_space->base_seq = get_ack_number(packet);
-    sock_info->send_space->sent_from = sock_info->send_space->buffer;
-    sock_info->send_space->sent_seq = sock_info->send_space->base_seq;
-    sock_info->send_space->next_data = sock_info->send_space->buffer;
-    sock_info->send_space->next_data_seq = sock_info->send_space->base_seq;
-    sock_info->send_space->write_from = sock_info->send_space->buffer;
-    sock_info->send_space->write_seq = sock_info->send_space->base_seq;
-    sock_info->send_space->waiting_write_list = new std::list<struct RWQueueItem*>();
-    sock_info->send_space->sent_packet_list = new std::list<struct SentInfo*>();
-
     set_packet_flags(&response_packet, TH_ACK);
     set_seq_ack_number(packet, &response_packet, TH_ACK);
     set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
 
-    sock_info->recv_space = (RecvSpace *) malloc(sizeof(struct RecvSpace));
-    sock_info->recv_space->base_seq = get_ack_number(&response_packet);
-    sock_info->recv_space->peer_base_seq = get_seq_number(&response_packet);
-    sock_info->recv_space->next_ret = sock_info->recv_space->buffer;
-    sock_info->recv_space->next_ret_seq = sock_info->recv_space->base_seq;
-    sock_info->recv_space->rcvd = sock_info->recv_space->buffer;
-    sock_info->recv_space->rcvd_seq = sock_info->recv_space->base_seq;
-    sock_info->recv_space->waiting_read_list = new std::list<struct RWQueueItem*>();
+    initSendRcvdSpace(sock_info, get_ack_number(packet), get_ack_number(&response_packet), get_seq_number(&response_packet));
 
     sendPacket("IPv4", std::move(response_packet));
     returnSystemCall(sock_info->connect_syscallUUID, 0);
@@ -1138,25 +1141,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     sock_info->status = Status::ESTAB;
     cancelTimer(sock_info->handshake_timer);
 
-    sock_info->send_space = (SendSpace *) malloc(sizeof(struct SendSpace));
-    sock_info->send_space->base_seq = get_ack_number(packet);
-    sock_info->send_space->sent_from = sock_info->send_space->buffer;
-    sock_info->send_space->sent_seq = sock_info->send_space->base_seq;
-    sock_info->send_space->next_data = sock_info->send_space->buffer;
-    sock_info->send_space->next_data_seq = sock_info->send_space->base_seq;
-    sock_info->send_space->write_from = sock_info->send_space->buffer;
-    sock_info->send_space->write_seq = sock_info->send_space->base_seq;
-    sock_info->send_space->waiting_write_list = new std::list<struct RWQueueItem*>();
-    sock_info->send_space->sent_packet_list = new std::list<struct SentInfo*>();
-
-    sock_info->recv_space = (RecvSpace *) malloc(sizeof(struct RecvSpace));
-    sock_info->recv_space->base_seq = get_seq_number(packet);
-    sock_info->recv_space->peer_base_seq = get_ack_number(packet);
-    sock_info->recv_space->next_ret = sock_info->recv_space->buffer;
-    sock_info->recv_space->next_ret_seq = sock_info->recv_space->base_seq;
-    sock_info->recv_space->rcvd = sock_info->recv_space->buffer;
-    sock_info->recv_space->rcvd_seq = sock_info->recv_space->base_seq;
-    sock_info->recv_space->waiting_read_list = new std::list<struct RWQueueItem*>();
+    initSendRcvdSpace(sock_info, get_ack_number(packet), get_seq_number(packet), get_ack_number(packet));
 
     parent_sock_info->child_sock_list->push_back(sock_info);
 
