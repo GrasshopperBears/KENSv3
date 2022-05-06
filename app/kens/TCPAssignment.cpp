@@ -20,6 +20,7 @@ const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
 const int DATA_OFFSET = SEGMENT_OFFSET + 20;
 const size_t BUFFER_SIZE = 2048;
 const size_t MSS = 1500;
+const Time DEFAULT_RTT = 100 * 1000 * 1000;
 
 // ------------------enums start------------------
 enum Status {
@@ -49,6 +50,7 @@ struct RWQueueItem {
 struct SentInfo {
   UUID timer_id;
   uint32_t seq;
+  E::Time sent_time;
 };
 
 struct SendSpace {
@@ -90,6 +92,8 @@ struct sock_info {
   SendSpace *send_space;
   RecvSpace *recv_space;
   UUID handshake_timer;
+  Time estimated_rtt;
+  Time dev_rtt;
 };
 
 struct kens_sockaddr_in {
@@ -279,6 +283,15 @@ struct kens_sockaddr_in* get_new_sockaddr_in(uint32_t ip, uint16_t port) {
   return addr;
 }
 
+void update_rtt(sock_info *sock_info, Time new_rtt) {
+  sock_info->dev_rtt = 0.75 * sock_info->dev_rtt + 0.25 * std::abs(long(sock_info->estimated_rtt - new_rtt));
+  sock_info->estimated_rtt = 0.875 * sock_info->estimated_rtt + 0.125 * new_rtt;
+}
+
+E::Time get_timeout_interval(sock_info *sock_info) {
+  return sock_info->estimated_rtt + 4 * sock_info->dev_rtt;
+}
+
 void TCPAssignment::acceptHandler(UUID syscallUUID, int pid,
                                   SystemCallParameter *param) {
   int fd = std::get<int>(param->params[0]);
@@ -436,8 +449,9 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, RWQueueItem *writeQu
     TimerPayload timer_payload = std::make_tuple(TimerType::SENT, sock_info, senderPacket);
     SentInfo *sent_info = (SentInfo *) malloc(sizeof(struct SentInfo));
     sendSpace->sent_packet_list->push_back(sent_info);
+    sent_info->sent_time = getCurrentTime();
     sent_info->seq = sendSpace->next_data_seq + buffer_offset;
-    sent_info->timer_id = addTimer(timer_payload, 1500 * 1000);
+    sent_info->timer_id = addTimer(timer_payload, get_timeout_interval(sock_info));
   }
   return returnSystemCall(syscallUUID, writeLen);
 }
@@ -467,6 +481,9 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     sock_info->backlog_list = new std::list<struct sock_info*>();
     sock_info->send_space = NULL;
     sock_info->recv_space = NULL;
+    sock_info->estimated_rtt = DEFAULT_RTT;
+    sock_info->dev_rtt = 0;
+
     sock_table.push_back(sock_info);
 
     returnSystemCall(syscallUUID, fd);
@@ -648,7 +665,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     std::tuple<TimerType, struct sock_info*, Packet> payload =
       std::make_tuple(TimerType::HANDSHAKE, sock_info, synPkt);
-    sock_info->handshake_timer = addTimer(payload, 1500 * 1000);
+    sock_info->handshake_timer = addTimer(payload, get_timeout_interval(sock_info));
 
     sock_info->status = Status::SYN_SENT;
     break;
@@ -855,6 +872,8 @@ void cloneSockInfo(struct sock_info* dst, struct sock_info* src) {
   dst->status = Status::SYN_RCVD;
   dst->send_space = NULL;
   dst->recv_space = NULL;
+  dst->estimated_rtt = DEFAULT_RTT;
+  dst->dev_rtt = 0;
 }
 
 bool isTargetSock(struct kens_sockaddr_in *sockaddr_in, uint32_t target_ip, uint16_t target_port, bool strict = false) {
@@ -991,7 +1010,7 @@ void TCPAssignment::handleSynPacket(std::string fromModule, Packet *packet) {
 
     std::tuple<TimerType, struct sock_info*, Packet> payload =
       std::make_tuple(TimerType::HANDSHAKE, new_sock_info, response_packet);
-    new_sock_info->handshake_timer = addTimer(payload, 1500 * 1000);
+    new_sock_info->handshake_timer = addTimer(payload, get_timeout_interval(sock_info));
   }
 
   return;
@@ -1103,6 +1122,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
         sent_info = *sent_info_itr;
         if (sent_info->seq < ack_num) {
           cancelTimer(sent_info->timer_id);
+          update_rtt(sock_info, getCurrentTime() - sent_info->sent_time);
           sent_info_itr = sock_info->send_space->sent_packet_list->erase(sent_info_itr);
           free(sent_info);
         } else {
@@ -1195,7 +1215,7 @@ void TCPAssignment::timerCallback(std::any payload) {
 
   if (timer_type == TimerType::HANDSHAKE) {
     sendPacket("IPv4", std::move(packet.clone()));
-    sock_info->handshake_timer = addTimer(params, 1500 * 1000);
+    sock_info->handshake_timer = addTimer(params, get_timeout_interval(sock_info));
   } else if (timer_type == TimerType::SENT) {
     sent_info_itr sent_info_itr;
     SentInfo *sent_info;
@@ -1209,7 +1229,8 @@ void TCPAssignment::timerCallback(std::any payload) {
 
     if (sent_info_itr != sock_info->send_space->sent_packet_list->end()) {
       sendPacket("IPv4", std::move(packet.clone()));
-      sent_info->timer_id = addTimer(payload, 1500 * 1000);
+      sent_info->sent_time = getCurrentTime();
+      sent_info->timer_id = addTimer(payload, get_timeout_interval(sock_info) * 2);
     }
   }
 }
