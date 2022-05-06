@@ -35,6 +35,7 @@ public:
 
 protected:
   virtual void acceptHandler(UUID syscallUUID, int pid, SystemCallParameter *param) final;
+  virtual void readHandler(UUID syscallUUID, int pid, RWQueueItem *readQueueItem) final;
   virtual void writeHandler(UUID syscallUUID, int pid, RWQueueItem *writeQueueItem) final;
   virtual void systemCallback(UUID syscallUUID, int pid,
                               const SystemCallParameter &param) final;
