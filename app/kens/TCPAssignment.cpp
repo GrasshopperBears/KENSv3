@@ -41,6 +41,11 @@ struct RWQueueItem {
   int len;
 };
 
+struct SentInfo {
+  uint32_t seq;
+  UUID timer_id;
+};
+
 struct SendSpace {
   char buffer[BUFFER_SIZE];
   uint32_t base_seq;
@@ -52,6 +57,7 @@ struct SendSpace {
   uint32_t next_data_seq;
   char *write_from;
   uint32_t write_seq;
+  std::list<SentInfo *>* sent_packet_list;
 };
 
 struct RecvSpace {
@@ -417,6 +423,11 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, RWQueueItem *writeQu
     senderPacket.writeData(DATA_OFFSET, sendSpace->next_data + buffer_offset, packet_size);
     set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
 
+    // SentInfo *sent_info = (SentInfo *) malloc(sizeof(struct SentInfo));
+    // sent_info->seq = sendSpace->next_data_seq + buffer_offset;
+    // sock_info->send_space->sent_packet_list->push_back(sent_info);
+    // sent_info->timer_id = addTimer(senderPacket, 1500 * 1000);
+
     sendSpace->next_data += writeLen;
     if (sendSpace->next_data >= sendSpace->buffer + BUFFER_SIZE) { sendSpace->next_data -= BUFFER_SIZE; }
     sendSpace->next_data_seq += writeLen;
@@ -470,6 +481,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
     if (sock_info->send_space != NULL) {
       delete sock_info->send_space->waiting_write_list;
+      delete sock_info->send_space->sent_packet_list;
       free(sock_info->send_space);
     }
     if (sock_info->recv_space != NULL) {
@@ -866,6 +878,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->send_space->write_from = sock_info->send_space->buffer;
     sock_info->send_space->write_seq = sock_info->send_space->base_seq;
     sock_info->send_space->waiting_write_list = new std::list<struct RWQueueItem*>();
+    sock_info->send_space->sent_packet_list = new std::list<struct SentInfo*>();
 
     set_packet_flags(&response_packet, TH_ACK);
     set_seq_ack_number(packet, &response_packet, TH_ACK);
@@ -1092,6 +1105,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     sock_info->send_space->write_from = sock_info->send_space->buffer;
     sock_info->send_space->write_seq = sock_info->send_space->base_seq;
     sock_info->send_space->waiting_write_list = new std::list<struct RWQueueItem*>();
+    sock_info->send_space->sent_packet_list = new std::list<struct SentInfo*>();
 
     sock_info->recv_space = (RecvSpace *) malloc(sizeof(struct RecvSpace));
     sock_info->recv_space->base_seq = get_seq_number(packet);
