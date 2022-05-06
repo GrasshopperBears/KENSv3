@@ -365,7 +365,6 @@ void TCPAssignment::readHandler(UUID syscallUUID, int pid, RWQueueItem *readQueu
 }
 
 void TCPAssignment::writeHandler(UUID syscallUUID, int pid, RWQueueItem *writeQueueItem) {
-  // printf("write handler\n");
   int fd = writeQueueItem->fd;
   char *write_buffer = writeQueueItem->buffer, *current_buffer_begin;
   int writeLen = writeQueueItem->len;
@@ -382,12 +381,7 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, RWQueueItem *writeQu
   }
 
   sendSpace = sock_info->send_space;
-  
   free_size = BUFFER_SIZE - (sendSpace->write_seq - sendSpace->sent_seq);
-  // if (sendSpace->write_from >= sendSpace->next_data) { free_size -= (sendSpace->write_from - sendSpace->next_data); }
-  // else { free_size -= (sendSpace->write_from + BUFFER_SIZE - sendSpace->next_data); }
-  // if (sendSpace->next_data >= sendSpace->sent_from) { free_size -= (sendSpace->next_data - sendSpace->sent_from); }
-  // else { free_size -= (sendSpace->next_data + BUFFER_SIZE - sendSpace->sent_from); }
 
   if (free_size < writeLen) {
     sendSpace->waiting_write_list->push_back(writeQueueItem);
@@ -437,10 +431,8 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, RWQueueItem *writeQu
     TimerPayload timer_payload = std::make_tuple(TimerType::SENT, sock_info, senderPacket);
     SentInfo *sent_info = (SentInfo *) malloc(sizeof(struct SentInfo));
     sendSpace->sent_packet_list->push_back(sent_info);
-    // printf("pushed\n");
     sent_info->seq = sendSpace->next_data_seq + buffer_offset;
     sent_info->timer_id = addTimer(timer_payload, 1500 * 1000);
-    
   }
   return returnSystemCall(syscallUUID, writeLen);
 }
@@ -500,7 +492,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
         free(sent_info);
       }
 
-
       delete sock_info->send_space->waiting_write_list;
       delete sock_info->send_space->sent_packet_list;
       free(sock_info->send_space);
@@ -516,7 +507,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     if (sock_info->peer_sockaddr != NULL)
       free(sock_info->peer_sockaddr);
     free(sock_info);
-    // printf("closed\n");
 
     struct UsingResourceInfo* using_resource_info;
     using_resource_itr using_resource_itr;
@@ -555,7 +545,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
     // this->syscall_write(syscallUUID, pid, std::get<int>(param.params[0]),
     //                     std::get<void *>(param.params[1]),
     //                     std::get<int>(param.params[2]));
-    // printf("write syscall\n");
     int fd = std::get<int>(param.params[0]);
     char* param_write_buffer = (char*) std::get<void *>(param.params[1]);
     int writeLen = std::get<int>(param.params[2]);
@@ -907,7 +896,6 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->send_space->write_seq = sock_info->send_space->base_seq;
     sock_info->send_space->waiting_write_list = new std::list<struct RWQueueItem*>();
     sock_info->send_space->sent_packet_list = new std::list<struct SentInfo*>();
-    // printf("init synack\n");
 
     set_packet_flags(&response_packet, TH_ACK);
     set_seq_ack_number(packet, &response_packet, TH_ACK);
@@ -920,8 +908,6 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     sock_info->recv_space->next_ret_seq = sock_info->recv_space->base_seq;
     sock_info->recv_space->rcvd = sock_info->recv_space->buffer;
     sock_info->recv_space->rcvd_seq = sock_info->recv_space->base_seq;
-    // sock_info->recv_space->write_from = sock_info->recv_space->buffer;
-    // sock_info->recv_space->write_seq = sock_info->recv_space->base_seq;
     sock_info->recv_space->waiting_read_list = new std::list<struct RWQueueItem*>();
 
     sendPacket("IPv4", std::move(response_packet));
@@ -1064,7 +1050,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       }
 
       // TODO: send rcwd window
-
       if (recvSpace->buffer + BUFFER_SIZE - recvSpace->rcvd >= data_size) {
         first = data_size;
         second = 0;
@@ -1102,7 +1087,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       return;
     }
 
-
     // handle write
     acked_size = ack_num - sock_info->send_space->sent_seq;
     if (acked_size > 0) {
@@ -1121,7 +1105,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
         if (sent_info->seq < ack_num) {
           cancelTimer(sent_info->timer_id);
           sent_info_itr = sock_info->send_space->sent_packet_list->erase(sent_info_itr);
-          // printf("erased\n");
           free(sent_info);
         } else {
           sent_info_itr++;
@@ -1132,11 +1115,9 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
         rw_queue_itr write_queue_itr = sock_info->send_space->waiting_write_list->begin();
         struct RWQueueItem *writeQueueItem = *write_queue_itr;
         sock_info->send_space->waiting_write_list->erase(write_queue_itr);
-        // printf("handle after ack\n");
         writeHandler(writeQueueItem->syscallUUID, writeQueueItem->pid, writeQueueItem);
       }
     }
-
     return;
   }
 
@@ -1167,7 +1148,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     sock_info->send_space->write_seq = sock_info->send_space->base_seq;
     sock_info->send_space->waiting_write_list = new std::list<struct RWQueueItem*>();
     sock_info->send_space->sent_packet_list = new std::list<struct SentInfo*>();
-    // printf("init ack\n");
 
     sock_info->recv_space = (RecvSpace *) malloc(sizeof(struct RecvSpace));
     sock_info->recv_space->base_seq = get_seq_number(packet);
@@ -1250,7 +1230,6 @@ void TCPAssignment::timerCallback(std::any payload) {
       sendPacket("IPv4", std::move(packet.clone()));
       sent_info->timer_id = addTimer(payload, 1500 * 1000);
     }
-
   }
 }
 
