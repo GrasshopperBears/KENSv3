@@ -1071,7 +1071,6 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
         return;
       }
 
-      // TODO: send rcwd window
       if (recvSpace->buffer + BUFFER_SIZE - recvSpace->rcvd >= data_size) {
         first = data_size;
         second = 0;
