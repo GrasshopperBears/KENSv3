@@ -33,7 +33,8 @@ enum Status {
 
 enum TimerType {
   HANDSHAKE,
-  SENT
+  SENT,
+  CHECK_RCWD
 };
 // ------------------enums end------------------
 
@@ -65,6 +66,7 @@ struct SendSpace {
   char *write_from;
   uint32_t write_seq;
   std::list<SentInfo*>* sent_packet_list;
+  uint16_t peer_rcwd;
 };
 
 struct RecvSpace {
@@ -215,6 +217,12 @@ uint32_t get_ack_number(Packet *pkt) {
   uint32_t ack;
   pkt->readData(SEGMENT_OFFSET + 8, &ack, 4);
   return ntohl(ack);
+}
+
+uint16_t get_rcwd(Packet *pkt) {
+  uint16_t rcwd;
+  pkt->readData(SEGMENT_OFFSET + 16, &rcwd, 2);
+  return ntohs(rcwd);
 }
 
 void set_seq_number(Packet *pkt, uint32_t seq) {
@@ -408,6 +416,28 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, RWQueueItem *writeQu
   sendSpace = sock_info->send_space;
   free_size = BUFFER_SIZE - (sendSpace->write_seq - sendSpace->sent_seq);
 
+  packet_count = writeLen / MSS;
+  if (writeLen % MSS > 0) { packet_count++; }
+  printf("pkt count: %d\n", packet_count);
+  size_t _consider_rcwd = sendSpace->peer_rcwd / MSS;
+  if (_consider_rcwd % MSS > 0) { _consider_rcwd++; }
+  printf("pkt count(rcwd): %d\n", _consider_rcwd);
+  if (_consider_rcwd < packet_count) {
+    packet_count = _consider_rcwd;
+    sendSpace->waiting_write_list->push_back(writeQueueItem);
+  
+    Packet senderPacket(DATA_OFFSET);
+    uint16_t _rcwd = (BUFFER_SIZE - (sendSpace->write_from - sendSpace->sent_from)) % BUFFER_SIZE;
+    initialize_packet(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->my_sockaddr->sin_port,
+                      sock_info->peer_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_port,
+                      sendSpace->next_data_seq, sendSpace->peer_base_seq, _rcwd);
+    TimerPayload timer_payload = std::make_tuple(TimerType::CHECK_RCWD, sock_info, senderPacket);
+    addTimer(timer_payload, get_timeout_interval(sock_info));
+    return;
+  }
+
+
+
   if (free_size < writeLen) {
     sendSpace->waiting_write_list->push_back(writeQueueItem);
     return;
@@ -430,8 +460,6 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, RWQueueItem *writeQu
   free(write_buffer);
   free(writeQueueItem);
 
-  packet_count = writeLen / MSS;
-  if (writeLen % MSS > 0) { packet_count++; }
 
   for (int i = 0; i < packet_count; i++) {
     uint64_t packet_size = MSS, buffer_offset = MSS * i;
@@ -440,7 +468,7 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, RWQueueItem *writeQu
     uint16_t _rcwd = (BUFFER_SIZE - (sendSpace->write_from - sendSpace->sent_from)) % BUFFER_SIZE;
     initialize_packet(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->my_sockaddr->sin_port,
                       sock_info->peer_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_port,
-                      sendSpace->next_data_seq + buffer_offset, sendSpace->peer_base_seq, 0);
+                      sendSpace->next_data_seq + buffer_offset, sendSpace->peer_base_seq, _rcwd);
     senderPacket.writeData(DATA_OFFSET, sendSpace->next_data + buffer_offset, packet_size);
     set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
 
@@ -885,7 +913,7 @@ bool isTargetSock(struct kens_sockaddr_in *sockaddr_in, uint32_t target_ip, uint
           && ((!strict && sockaddr_in->sin_addr == 0) || sockaddr_in->sin_addr == target_ip);
 }
 
-void initSendRcvdSpace(sock_info *sock_info, uint32_t send_base_seq, uint32_t recv_base_seq, uint32_t recv_peer_seq) {
+void initSendRcvdSpace(sock_info *sock_info, uint32_t send_base_seq, uint32_t recv_base_seq, uint32_t recv_peer_seq, uint16_t rcwd) {
   sock_info->send_space = (SendSpace *) malloc(sizeof(struct SendSpace));
   sock_info->send_space->base_seq = send_base_seq;
   sock_info->send_space->sent_from = sock_info->send_space->buffer;
@@ -896,6 +924,7 @@ void initSendRcvdSpace(sock_info *sock_info, uint32_t send_base_seq, uint32_t re
   sock_info->send_space->write_seq = sock_info->send_space->base_seq;
   sock_info->send_space->waiting_write_list = new std::list<struct RWQueueItem*>();
   sock_info->send_space->sent_packet_list = new std::list<struct SentInfo*>();
+  sock_info->send_space->peer_rcwd = rcwd;
 
   sock_info->recv_space = (RecvSpace *) malloc(sizeof(struct RecvSpace));
   sock_info->recv_space->base_seq = recv_base_seq;
@@ -937,7 +966,7 @@ void TCPAssignment::handleSynAckPacket(std::string fromModule, Packet *packet) {
     set_seq_ack_number(packet, &response_packet, TH_ACK);
     set_packet_checksum(&response_packet, income_dst_ip, income_src_ip);
 
-    initSendRcvdSpace(sock_info, get_ack_number(packet), get_ack_number(&response_packet), get_seq_number(&response_packet));
+    initSendRcvdSpace(sock_info, get_ack_number(packet), get_ack_number(&response_packet), get_seq_number(&response_packet), get_rcwd(&response_packet));
 
     sendPacket("IPv4", std::move(response_packet));
     returnSystemCall(sock_info->connect_syscallUUID, 0);
@@ -1134,6 +1163,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
         }
       }
 
+      sock_info->send_space->peer_rcwd = get_rcwd(packet);
       if (sock_info->send_space->waiting_write_list->size() > 0) {
         rw_queue_itr write_queue_itr = sock_info->send_space->waiting_write_list->begin();
         struct RWQueueItem *writeQueueItem = *write_queue_itr;
@@ -1161,7 +1191,7 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
     sock_info->status = Status::ESTAB;
     cancelTimer(sock_info->handshake_timer);
 
-    initSendRcvdSpace(sock_info, get_ack_number(packet), get_seq_number(packet), get_ack_number(packet));
+    initSendRcvdSpace(sock_info, get_ack_number(packet), get_seq_number(packet), get_ack_number(packet), get_rcwd(packet));
 
     parent_sock_info->child_sock_list->push_back(sock_info);
 
@@ -1235,6 +1265,11 @@ void TCPAssignment::timerCallback(std::any payload) {
       sendPacket("IPv4", std::move(packet.clone()));
       sent_info->sent_time = getCurrentTime();
       sent_info->timer_id = addTimer(payload, get_timeout_interval(sock_info) * 2);
+    }
+  } else if (timer_type == TimerType::CHECK_RCWD) {
+    if (sock_info->send_space->peer_rcwd == 0) {
+      sendPacket("IPv4", std::move(packet.clone()));
+      addTimer(payload, get_timeout_interval(sock_info));
     }
   }
 }
