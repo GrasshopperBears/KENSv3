@@ -34,7 +34,7 @@ public:
   virtual ~TCPAssignment();
 
 protected:
-  virtual void initialize_packet(Packet *packet, uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint16_t dst_port, uint32_t seq, uint32_t ack) final;
+  virtual void initialize_packet(Packet *packet, uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint16_t dst_port, uint32_t seq, uint32_t ack, uint16_t rcwd) final;
   virtual void acceptHandler(UUID syscallUUID, int pid, SystemCallParameter *param) final;
   virtual void readHandler(UUID syscallUUID, int pid, RWQueueItem *readQueueItem) final;
   virtual void writeHandler(UUID syscallUUID, int pid, RWQueueItem *writeQueueItem) final;

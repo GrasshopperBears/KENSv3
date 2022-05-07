@@ -228,13 +228,15 @@ void set_ack_number(Packet *pkt, uint32_t ack) {
 }
 
 void TCPAssignment::initialize_packet(Packet *packet, uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint16_t dst_port,
-                                      uint32_t seq, uint32_t ack)
+                                      uint32_t seq, uint32_t ack, uint16_t rcwd)
 {
+  uint16_t _rcwd = htons(rcwd);
   setPacketSrcDst(packet, &src_ip, &src_port, &dst_ip, &dst_port);
   set_seq_number(packet, seq);
   set_ack_number(packet, ack);
   set_packet_flags(packet, TH_ACK);
   set_packet_length(packet);
+  packet->writeData(SEGMENT_OFFSET + 16, &_rcwd, 2);
 }
 
 u_int32_t getRandomSequnceNumber() {
@@ -435,9 +437,10 @@ void TCPAssignment::writeHandler(UUID syscallUUID, int pid, RWQueueItem *writeQu
     uint64_t packet_size = MSS, buffer_offset = MSS * i;
     if (writeLen - buffer_offset < MSS) { packet_size = writeLen - buffer_offset; }
     Packet senderPacket(DATA_OFFSET + packet_size);
+    uint16_t _rcwd = (BUFFER_SIZE - (sendSpace->write_from - sendSpace->sent_from)) % BUFFER_SIZE;
     initialize_packet(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->my_sockaddr->sin_port,
                       sock_info->peer_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_port,
-                      sendSpace->next_data_seq + buffer_offset, sendSpace->peer_base_seq);
+                      sendSpace->next_data_seq + buffer_offset, sendSpace->peer_base_seq, 0);
     senderPacket.writeData(DATA_OFFSET, sendSpace->next_data + buffer_offset, packet_size);
     set_packet_checksum(&senderPacket, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
 
@@ -1064,8 +1067,9 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       size_t first, second;
       if (seq_num < recvSpace->rcvd_seq) {
         Packet response_packet = Packet(DATA_OFFSET);
+        uint16_t _rcwd = (BUFFER_SIZE - (recvSpace->rcvd - recvSpace->next_ret)) % BUFFER_SIZE;
         initialize_packet(&response_packet, income_dst_ip, income_dst_port, income_src_ip, income_src_port,
-                          sock_info->send_space->base_seq, recvSpace->rcvd_seq);
+                          sock_info->send_space->base_seq, recvSpace->rcvd_seq, _rcwd);
         set_packet_checksum(&response_packet, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
         sendPacket("IPv4", std::move(response_packet));
         return;
@@ -1090,8 +1094,9 @@ void TCPAssignment::handleAckPacket(std::string fromModule, Packet *packet) {
       }
       
       Packet response_packet = Packet(DATA_OFFSET);
+      uint16_t _rcwd = (BUFFER_SIZE - (recvSpace->rcvd - recvSpace->next_ret)) % BUFFER_SIZE;
       initialize_packet(&response_packet, income_dst_ip, income_dst_port, income_src_ip, income_src_port,
-                        sock_info->send_space->base_seq, recvSpace->rcvd_seq);
+                        sock_info->send_space->base_seq, recvSpace->rcvd_seq, _rcwd);
       set_packet_checksum(&response_packet, sock_info->my_sockaddr->sin_addr, sock_info->peer_sockaddr->sin_addr);
 
       if (sock_info->recv_space->waiting_read_list->size() > 0) {
