@@ -33,8 +33,16 @@ struct pseudoheader {
   uint16_t length;
 };
 
+struct rip_info {
+  ipv4_t ip;
+  uint8_t hops;
+  uint16_t cost;  // docs: In RIPv1, the cost is just hop-count
+};
 // ----------------structs end----------------
 
+std::list<rip_info*> rip_table;
+
+using rip_info_itr = typename std::list<struct rip_info*>::iterator;
 using uint16_pair = typename std::pair<uint16_t, uint16_t>;
 
 RoutingAssignment::RoutingAssignment(Host &host)
@@ -45,7 +53,22 @@ RoutingAssignment::~RoutingAssignment() {}
 
 void RoutingAssignment::initialize() {}
 
-void RoutingAssignment::finalize() {}
+void RoutingAssignment::finalize() {
+  if (rip_table.size() > 0) {
+    rip_info_itr itr = rip_table.begin();
+    while (itr != rip_table.end()) {
+      itr = rip_table.erase(itr);
+    }
+  }
+}
+
+rip_info_itr find_rip_info(ipv4_t ipv4) {
+  rip_info_itr itr;
+  for (itr = rip_table.begin(); itr != rip_table.end(); ++itr) {
+    if ((*itr)->ip == ipv4) { break; }
+  }
+  return itr;
+}
 
 void getPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {
   packet->readData(PACKET_OFFSET + 12, src_ip, 4);
@@ -133,8 +156,11 @@ bool isValidPacket(Packet *packet) {
  */
 Size RoutingAssignment::ripQuery(const ipv4_t &ipv4) {
   // Implement below
+  rip_info_itr itr = find_rip_info(ipv4);
 
-  return -1;
+  if (itr == rip_table.end()) { return -1; }
+
+  return (*itr)->hops;
 }
 
 void RoutingAssignment::packetArrived(std::string fromModule, Packet &&packet) {
