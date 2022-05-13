@@ -184,12 +184,12 @@ void setRipHeader(Packet *packet, uint8_t command) {
   packet->writeData(DATA_OFFSET + 2, &zero, 2);
 }
 
-void setIthRipEntry(Packet *packet, uint8_t idx, uint32_t ip, uint32_t metric) {
-  uint16_t addr_fam = htobe16(2);
+void setIthRipEntry(Packet *packet, uint8_t idx, uint32_t ip, uint32_t metric, uint16_t addr_fam = 2) {
+  uint16_t addr_fam_converted = htobe16(addr_fam);
   uint32_t entry_offset = htobe32(DATA_OFFSET + 4 + RIP_ENTRY_SIZE * idx), zero = 0;
   uint32_t ip_converted = htobe32(ip), metric_converted = htobe32(metric);
 
-  packet->writeData(entry_offset, &addr_fam, 2);
+  packet->writeData(entry_offset, &addr_fam_converted, 2);
   packet->writeData(entry_offset + 2, &zero, 2);
   packet->writeData(entry_offset + 4, &ip_converted, 4);
   packet->writeData(entry_offset + 8, &zero, 4);
