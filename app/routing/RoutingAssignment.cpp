@@ -14,6 +14,29 @@
 
 namespace E {
 
+const int PACKET_OFFSET = 14;
+const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
+const int DATA_OFFSET = SEGMENT_OFFSET + 8; // UDP header is 8 bytes
+
+// ------------------enums start------------------
+
+
+
+// ------------------enums end------------------
+
+// ----------------structs start----------------
+struct pseudoheader {
+  uint32_t source;
+  uint32_t destination;
+  uint8_t zero;
+  uint8_t protocol;
+  uint16_t length;
+};
+
+// ----------------structs end----------------
+
+using uint16_pair = typename std::pair<uint16_t, uint16_t>;
+
 RoutingAssignment::RoutingAssignment(Host &host)
     : HostModule("UDP", host), RoutingInfoInterface(host),
       TimerModule("UDP", host) {}
@@ -23,6 +46,84 @@ RoutingAssignment::~RoutingAssignment() {}
 void RoutingAssignment::initialize() {}
 
 void RoutingAssignment::finalize() {}
+
+void getPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {
+  packet->readData(PACKET_OFFSET + 12, src_ip, 4);
+  packet->readData(PACKET_OFFSET + 16, dst_ip, 4);
+  packet->readData(SEGMENT_OFFSET, src_port, 2);
+  packet->readData(SEGMENT_OFFSET + 2, dst_port, 2);
+}
+
+void setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {
+  packet->writeData(PACKET_OFFSET + 12, src_ip, 4);
+  packet->writeData(PACKET_OFFSET + 16, dst_ip, 4);
+  packet->writeData(SEGMENT_OFFSET, src_port, 2);
+  packet->writeData(SEGMENT_OFFSET + 2, dst_port, 2);
+}
+
+uint16_pair get_udp_port(Packet *packet) {
+  uint16_t src_port, dst_port;
+  uint16_pair ports;
+
+  packet->readData(SEGMENT_OFFSET, &src_port, 2);
+  packet->readData(SEGMENT_OFFSET + 2, &dst_port, 2);
+  ports = std::make_pair(src_port, dst_port);
+  return ports;
+}
+
+void set_udp_port(Packet *packet, uint16_t src_port, uint16_t dst_port) {
+  packet->writeData(SEGMENT_OFFSET, &src_port, 2);
+  packet->writeData(SEGMENT_OFFSET + 2, &dst_port, 2);
+}
+
+void set_udp_header_len(Packet *packet, uint16_t header_len) {
+  packet->writeData(SEGMENT_OFFSET + 4, &header_len, 2);
+}
+
+uint16_t udp_sum(uint32_t source, uint32_t dest, const uint8_t *tcp_seg, size_t length) {
+  if (length < 20)
+    return 0;
+  struct pseudoheader pheader;
+  pheader.source = source;
+  pheader.destination = dest;
+  pheader.zero = 0;
+  pheader.protocol = 17;
+  pheader.length = length;
+
+  uint32_t sum = NetworkUtil::one_sum((uint8_t *)&pheader, sizeof(pheader));
+  sum += NetworkUtil::one_sum(tcp_seg, length);
+  sum = (sum & 0xFFFF) + (sum >> 16);
+  return (uint16_t)sum;
+}
+
+void set_packet_checksum(Packet *packet, uint32_t src_ip, uint32_t dst_ip) {
+  uint64_t packet_length = packet->getSize() - SEGMENT_OFFSET;
+  uint16_t zero = 0;
+  int checksum_pos = 6, checksum_size = 2;
+  char buffer[packet_length];
+
+  // Init checksum field
+  packet->writeData(SEGMENT_OFFSET + checksum_pos, &zero, checksum_size);
+
+  packet->readData(SEGMENT_OFFSET, buffer, packet_length);
+  uint16_t checksum = udp_sum(src_ip, dst_ip, (uint8_t *)buffer, packet_length);
+  checksum = ~checksum;
+  packet->writeData(SEGMENT_OFFSET + checksum_pos, &checksum, checksum_size);
+}
+
+bool isValidPacket(Packet *packet) {
+  uint16_t income_src_port, income_dst_port;
+  uint32_t income_src_ip, income_dst_ip;
+  uint64_t packet_length = packet->getSize() - SEGMENT_OFFSET;
+  char buffer[packet_length];
+
+  getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+  packet->readData(SEGMENT_OFFSET, buffer, packet_length);
+
+  uint16_t checksum = NetworkUtil::tcp_sum(income_src_ip, income_dst_ip, (uint8_t *)buffer, packet_length);
+
+  return checksum == 0xFFFF;
+}
 
 /**
  * @brief Query cost for a host
