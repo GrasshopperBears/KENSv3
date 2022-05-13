@@ -17,6 +17,7 @@ namespace E {
 const int PACKET_OFFSET = 14;
 const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
 const int DATA_OFFSET = SEGMENT_OFFSET + 8; // UDP header is 8 bytes
+const int RIP_ENTRY_SIZE = 20;
 
 // ------------------enums start------------------
 
@@ -34,7 +35,7 @@ struct pseudoheader {
 };
 
 struct rip_info {
-  ipv4_t ip;
+  uint32_t ip;
   uint8_t hops;
   uint16_t cost;  // docs: In RIPv1, the cost is just hop-count
 };
@@ -62,7 +63,7 @@ void RoutingAssignment::finalize() {
   }
 }
 
-rip_info_itr find_rip_info(ipv4_t ipv4) {
+rip_info_itr find_rip_info(uint32_t ipv4) {
   rip_info_itr itr;
   for (itr = rip_table.begin(); itr != rip_table.end(); ++itr) {
     if ((*itr)->ip == ipv4) { break; }
@@ -141,6 +142,7 @@ void set_packet_checksum(Packet *packet, uint32_t src_ip, uint32_t dst_ip) {
   packet->readData(SEGMENT_OFFSET, buffer, packet_length);
   uint16_t checksum = udp_sum(src_ip, dst_ip, (uint8_t *)buffer, packet_length);
   checksum = ~checksum;
+  // Removed htons
   packet->writeData(SEGMENT_OFFSET + checksum_pos, &checksum, checksum_size);
 }
 
@@ -158,6 +160,26 @@ bool isValidPacket(Packet *packet) {
   return checksum == 0xFFFF;
 }
 
+void setRipHeader(Packet *packet, uint8_t command) {
+  uint8_t version = 1;
+  uint16_t zero = 0;
+
+  packet->writeData(DATA_OFFSET, &command, 1);
+  packet->writeData(DATA_OFFSET + 1, &version, 1);
+  packet->writeData(DATA_OFFSET + 2, &zero, 2);
+}
+
+void setIthRipEntry(Packet *packet, uint8_t idx, uint16_t addr_fam, uint32_t ip, uint32_t metric) {
+  uint32_t entry_offset = DATA_OFFSET + 4 + RIP_ENTRY_SIZE * idx, zero = 0;
+
+  packet->writeData(entry_offset, &addr_fam, 2);
+  packet->writeData(entry_offset + 2, &zero, 2);
+  packet->writeData(entry_offset + 4, &ip, 4);
+  packet->writeData(entry_offset + 8, &zero, 4);
+  packet->writeData(entry_offset + 12, &zero, 4);
+  packet->writeData(entry_offset + 16, &metric, 4);
+}
+
 /**
  * @brief Query cost for a host
  *
@@ -166,7 +188,7 @@ bool isValidPacket(Packet *packet) {
  */
 Size RoutingAssignment::ripQuery(const ipv4_t &ipv4) {
   // Implement below
-  rip_info_itr itr = find_rip_info(ipv4);
+  rip_info_itr itr = find_rip_info(NetworkUtil::arrayToUINT64(ipv4));
 
   if (itr == rip_table.end()) { return -1; }
 
