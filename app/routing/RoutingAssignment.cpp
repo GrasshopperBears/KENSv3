@@ -84,6 +84,16 @@ void setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint3
   packet->writeData(SEGMENT_OFFSET + 2, dst_port, 2);
 }
 
+uint16_t getPacketTtl(Packet *packet) {
+  uint16_t ttl;
+  packet->readData(PACKET_OFFSET + 8, &ttl, 1);
+  return ttl;
+}
+
+void setPacketTtl(Packet *packet, uint16_t ttl) {
+  packet->writeData(PACKET_OFFSET + 8, &ttl, 1);
+}
+
 uint16_pair get_udp_port(Packet *packet) {
   uint16_t src_port, dst_port;
   uint16_pair ports;
