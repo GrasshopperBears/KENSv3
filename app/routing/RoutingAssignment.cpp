@@ -76,13 +76,23 @@ void getPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint3
   packet->readData(PACKET_OFFSET + 16, dst_ip, 4);
   packet->readData(SEGMENT_OFFSET, src_port, 2);
   packet->readData(SEGMENT_OFFSET + 2, dst_port, 2);
+
+  *src_ip = be32toh(*src_ip);
+  *dst_ip = be32toh(*dst_ip);
+  *src_port = be16toh(*src_port);
+  *dst_port = be16toh(*dst_port);
 }
 
 void setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {
-  packet->writeData(PACKET_OFFSET + 12, src_ip, 4);
-  packet->writeData(PACKET_OFFSET + 16, dst_ip, 4);
-  packet->writeData(SEGMENT_OFFSET, src_port, 2);
-  packet->writeData(SEGMENT_OFFSET + 2, dst_port, 2);
+  uint32_t src_ip_converted = htobe32(*src_ip);
+  uint32_t dst_ip_converted = htobe32(*dst_ip);
+  uint16_t src_port_converted = htobe16(*src_port);
+  uint16_t dst_port_converted = htobe16(*dst_port);
+  
+  packet->writeData(PACKET_OFFSET + 12, &src_ip_converted, 4);
+  packet->writeData(PACKET_OFFSET + 16, &dst_ip_converted, 4);
+  packet->writeData(SEGMENT_OFFSET, &src_port_converted, 2);
+  packet->writeData(SEGMENT_OFFSET + 2, &dst_port_converted, 2);
 }
 
 uint16_t getPacketTtl(Packet *packet) {
@@ -101,17 +111,22 @@ uint16_pair get_udp_port(Packet *packet) {
 
   packet->readData(SEGMENT_OFFSET, &src_port, 2);
   packet->readData(SEGMENT_OFFSET + 2, &dst_port, 2);
-  ports = std::make_pair(src_port, dst_port);
+  ports = std::make_pair(be16toh(src_port), be16toh(dst_port));
   return ports;
 }
 
-void set_udp_port(Packet *packet, uint16_t src_port, uint16_t dst_port) {
-  packet->writeData(SEGMENT_OFFSET, &src_port, 2);
-  packet->writeData(SEGMENT_OFFSET + 2, &dst_port, 2);
+void set_udp_port(Packet *packet, uint16_t *src_port, uint16_t *dst_port) {
+  uint16_t src_port_converted = htobe16(*src_port);
+  uint16_t dst_port_converted = htobe16(*dst_port);
+  
+  packet->writeData(SEGMENT_OFFSET, &src_port_converted, 2);
+  packet->writeData(SEGMENT_OFFSET + 2, &dst_port_converted, 2);
 }
 
 void set_udp_header_len(Packet *packet, uint16_t header_len) {
-  packet->writeData(SEGMENT_OFFSET + 4, &header_len, 2);
+  uint16_t header_len_converted = htobe16(header_len);
+
+  packet->writeData(SEGMENT_OFFSET + 4, &header_len_converted, 2);
 }
 
 uint16_t udp_sum(uint32_t source, uint32_t dest, const uint8_t *tcp_seg, size_t length) {
@@ -142,7 +157,7 @@ void set_packet_checksum(Packet *packet, uint32_t src_ip, uint32_t dst_ip) {
   packet->readData(SEGMENT_OFFSET, buffer, packet_length);
   uint16_t checksum = udp_sum(src_ip, dst_ip, (uint8_t *)buffer, packet_length);
   checksum = ~checksum;
-  // Removed htons
+  checksum = htobe16(checksum);
   packet->writeData(SEGMENT_OFFSET + checksum_pos, &checksum, checksum_size);
 }
 
@@ -169,15 +184,17 @@ void setRipHeader(Packet *packet, uint8_t command) {
   packet->writeData(DATA_OFFSET + 2, &zero, 2);
 }
 
-void setIthRipEntry(Packet *packet, uint8_t idx, uint16_t addr_fam, uint32_t ip, uint32_t metric) {
-  uint32_t entry_offset = DATA_OFFSET + 4 + RIP_ENTRY_SIZE * idx, zero = 0;
+void setIthRipEntry(Packet *packet, uint8_t idx, uint32_t ip, uint32_t metric) {
+  uint16_t addr_fam = htobe16(2);
+  uint32_t entry_offset = htobe32(DATA_OFFSET + 4 + RIP_ENTRY_SIZE * idx), zero = 0;
+  uint32_t ip_converted = htobe32(ip), metric_converted = htobe32(metric);
 
   packet->writeData(entry_offset, &addr_fam, 2);
   packet->writeData(entry_offset + 2, &zero, 2);
-  packet->writeData(entry_offset + 4, &ip, 4);
+  packet->writeData(entry_offset + 4, &ip_converted, 4);
   packet->writeData(entry_offset + 8, &zero, 4);
   packet->writeData(entry_offset + 12, &zero, 4);
-  packet->writeData(entry_offset + 16, &metric, 4);
+  packet->writeData(entry_offset + 16, &metric_converted, 4);
 }
 
 /**
