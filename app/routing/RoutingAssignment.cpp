@@ -17,7 +17,9 @@ namespace E {
 const int PACKET_OFFSET = 14;
 const int SEGMENT_OFFSET = PACKET_OFFSET + 20;
 const int DATA_OFFSET = SEGMENT_OFFSET + 8; // UDP header is 8 bytes
+const int RIP_HEADER_SIZE = 4;
 const int RIP_ENTRY_SIZE = 20;
+uint16_t RIP_PORT = 520;
 
 // ------------------enums start------------------
 
@@ -51,17 +53,6 @@ RoutingAssignment::RoutingAssignment(Host &host)
       TimerModule("UDP", host) {}
 
 RoutingAssignment::~RoutingAssignment() {}
-
-void RoutingAssignment::initialize() {}
-
-void RoutingAssignment::finalize() {
-  if (rip_table.size() > 0) {
-    rip_info_itr itr = rip_table.begin();
-    while (itr != rip_table.end()) {
-      itr = rip_table.erase(itr);
-    }
-  }
-}
 
 rip_info_itr find_rip_info(uint32_t ipv4) {
   rip_info_itr itr;
@@ -186,7 +177,7 @@ void setRipHeader(Packet *packet, uint8_t command) {
 
 void setIthRipEntry(Packet *packet, uint8_t idx, uint32_t ip, uint32_t metric, uint16_t addr_fam = 2) {
   uint16_t addr_fam_converted = htobe16(addr_fam);
-  uint32_t entry_offset = htobe32(DATA_OFFSET + 4 + RIP_ENTRY_SIZE * idx), zero = 0;
+  uint32_t entry_offset = htobe32(DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE * idx), zero = 0;
   uint32_t ip_converted = htobe32(ip), metric_converted = htobe32(metric);
 
   packet->writeData(entry_offset, &addr_fam_converted, 2);
@@ -195,6 +186,32 @@ void setIthRipEntry(Packet *packet, uint8_t idx, uint32_t ip, uint32_t metric, u
   packet->writeData(entry_offset + 8, &zero, 4);
   packet->writeData(entry_offset + 12, &zero, 4);
   packet->writeData(entry_offset + 16, &metric_converted, 4);
+}
+
+void RoutingAssignment::initialize() {
+  Packet initial_packet = Packet(DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE);
+  ipv4_t broadcast_ip = {255, 255, 255, 255};
+  ipv4_t ip = getIPAddr((uint16_t) getRoutingTable(broadcast_ip)).value();
+
+  uint32_t src_ip = NetworkUtil::arrayToUINT64(ip);
+  uint32_t dst_ip = NetworkUtil::arrayToUINT64(broadcast_ip);
+
+  setPacketSrcDst(&initial_packet, &src_ip, &RIP_PORT, &dst_ip, &RIP_PORT);
+  set_udp_header_len(&initial_packet, initial_packet.getSize() - SEGMENT_OFFSET);
+  setRipHeader(&initial_packet, 1);
+  setIthRipEntry(&initial_packet, 0, 0UL, 16UL, 0UL);
+  set_packet_checksum(&initial_packet, src_ip, dst_ip);
+
+  sendPacket("IPv4", std::move(initial_packet));
+}
+
+void RoutingAssignment::finalize() {
+  if (rip_table.size() > 0) {
+    rip_info_itr itr = rip_table.begin();
+    while (itr != rip_table.end()) {
+      itr = rip_table.erase(itr);
+    }
+  }
 }
 
 /**
