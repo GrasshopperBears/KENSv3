@@ -91,6 +91,7 @@ public:
 
   virtual void initialize();
   virtual void finalize();
+  virtual void initialPacketHandler(Packet *packet);
   virtual ~RoutingAssignment();
 
 protected:

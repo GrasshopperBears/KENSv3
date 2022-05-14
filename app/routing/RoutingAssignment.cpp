@@ -245,7 +245,7 @@ Size RoutingAssignment::ripQuery(const ipv4_t &ipv4) {
 
   if (itr == rip_table.end()) { return -1; }
 
-  return (*itr)->hops;
+  return (*itr)->cost;
 }
 
 bool isRipPort(Packet *packet) {
@@ -270,16 +270,19 @@ bool isInitialPacket(Packet *packet) {
   return command == 1 && addr_fam == 0 && ip == 0 && metric == 16;
 }
 
-void initialPacketHandler(Packet *packet) {
+void RoutingAssignment::initialPacketHandler(Packet *packet) {
   uint16_t income_src_port, income_dst_port;
   uint32_t income_src_ip, income_dst_ip;
   rip_info *rip_info = (struct rip_info *) malloc(sizeof(struct rip_info));
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
+  ipv4_t src_ip = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t) income_src_ip);
+  size_t cost = linkCost(getRoutingTable(src_ip));
+  
   rip_info->ip = income_src_ip;
   rip_info->hops = 1;
-  rip_info->cost = 1;
+  rip_info->cost = cost;
   rip_table.push_back(rip_info);
   return;
 }
