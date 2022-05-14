@@ -10,6 +10,7 @@
 #include <E/Networking/E_Networking.hpp>
 #include <E/Networking/E_TimerModule.hpp>
 #include <E/Networking/E_Wire.hpp>
+#include <arpa/inet.h>
 
 namespace E {
 
