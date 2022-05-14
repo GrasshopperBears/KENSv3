@@ -20,6 +20,7 @@ const int DATA_OFFSET = SEGMENT_OFFSET + 8; // UDP header is 8 bytes
 const int RIP_HEADER_SIZE = 4;
 const int RIP_ENTRY_SIZE = 20;
 uint16_t RIP_PORT = 520;
+const uint64_t TIME_SECOND = 1000 * 1000 * 1000;
 
 // ------------------enums start------------------
 
@@ -175,9 +176,14 @@ void setRipHeader(Packet *packet, uint8_t command) {
   packet->writeData(DATA_OFFSET + 2, &zero, 2);
 }
 
+void getRipHeader(Packet *packet, uint8_t *command, uint8_t *version) {
+  packet->readData(DATA_OFFSET, command, 1);
+  packet->readData(DATA_OFFSET + 1, version, 1);
+}
+
 void setIthRipEntry(Packet *packet, uint8_t idx, uint32_t ip, uint32_t metric, uint16_t addr_fam = 2) {
   uint16_t addr_fam_converted = htons(addr_fam);
-  uint32_t entry_offset = htonl(DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE * idx), zero = 0;
+  uint32_t entry_offset = DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE * idx, zero = 0;
   uint32_t ip_converted = htonl(ip), metric_converted = htonl(metric);
 
   packet->writeData(entry_offset, &addr_fam_converted, 2);
@@ -186,6 +192,18 @@ void setIthRipEntry(Packet *packet, uint8_t idx, uint32_t ip, uint32_t metric, u
   packet->writeData(entry_offset + 8, &zero, 4);
   packet->writeData(entry_offset + 12, &zero, 4);
   packet->writeData(entry_offset + 16, &metric_converted, 4);
+}
+
+void getIthRipEntry(Packet *packet, uint8_t idx, uint32_t *ip, uint32_t *metric, uint16_t *addr_fam) {
+  uint32_t entry_offset = DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE * idx;
+
+  packet->readData(entry_offset, addr_fam, 2);
+  packet->readData(entry_offset + 4, ip, 4);
+  packet->readData(entry_offset + 16, metric, 4);
+
+  *addr_fam = ntohs(*addr_fam);
+  *ip = ntohl(*ip);
+  *metric = ntohl(*metric);
 }
 
 void RoutingAssignment::initialize() {
@@ -203,6 +221,7 @@ void RoutingAssignment::initialize() {
   set_packet_checksum(&initial_packet, src_ip, dst_ip);
 
   sendPacket("IPv4", std::move(initial_packet));
+  addTimer(nullptr, 30UL * TIME_SECOND);
 }
 
 void RoutingAssignment::finalize() {
@@ -229,10 +248,46 @@ Size RoutingAssignment::ripQuery(const ipv4_t &ipv4) {
   return (*itr)->hops;
 }
 
+bool isRipPort(Packet *packet) {
+  uint16_t income_src_port, income_dst_port;
+  uint32_t income_src_ip, income_dst_ip;
+
+  getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+
+  return income_src_port == RIP_PORT && income_dst_port == RIP_PORT;
+}
+
+bool isInitialPacket(Packet *packet) {
+  uint32_t ip, metric;
+  uint16_t addr_fam, initial_packet_size = DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE;
+  uint8_t command, version;
+
+  if (packet->getSize() != initial_packet_size) { return false; }
+
+  getRipHeader(packet, &command, &version);
+  getIthRipEntry(packet, 0, &ip, &metric, &addr_fam);
+
+  return command == 1 && addr_fam == 0 && ip == 0 && metric == 16;
+}
+
+void initialPacketHandler(Packet *packet) {
+  uint16_t income_src_port, income_dst_port;
+  uint32_t income_src_ip, income_dst_ip;
+  rip_info *rip_info = (struct rip_info *) malloc(sizeof(struct rip_info));
+
+  getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+
+  rip_info->ip = income_src_ip;
+  rip_info->hops = 1;
+  rip_info->cost = 1;
+  rip_table.push_back(rip_info);
+  return;
+}
+
 void RoutingAssignment::packetArrived(std::string fromModule, Packet &&packet) {
-  // Remove below
-  (void)fromModule;
-  (void)packet;
+  if (!isRipPort(&packet)) { return; }
+  if (isInitialPacket(&packet)) { return initialPacketHandler(&packet); }
+  // TODO: handle other request packets
 }
 
 void RoutingAssignment::timerCallback(std::any payload) {
