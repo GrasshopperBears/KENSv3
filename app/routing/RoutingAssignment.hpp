@@ -91,9 +91,11 @@ public:
 
   virtual void initialize();
   virtual void finalize();
+  virtual uint32_t getMyIp();
   virtual void initialPacketHandler(Packet *packet);
   virtual void updateTable(Packet *packet);
   virtual void sendResponse(uint32_t src_ip);
+  virtual bool isSrcHost(Packet *packet);
   virtual ~RoutingAssignment();
 
 protected:
