@@ -68,28 +68,32 @@ rip_info_itr find_rip_info(RipTable rip_table, uint32_t ipv4) {
   return itr;
 }
 
+std::string getIpString(uint32_t ip) {
+  ipv4_t ip_arr = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t)ip);
+  std::string result = std::string();
+  result.append(std::to_string(ip_arr[0]));
+  result.append(".");
+  result.append(std::to_string(ip_arr[1]));
+  result.append(".");
+  result.append(std::to_string(ip_arr[2]));
+  result.append(".");
+  result.append(std::to_string(ip_arr[3]));
+
+  return result;
+}
+
 void getPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {
   packet->readData(PACKET_OFFSET + 12, src_ip, 4);
   packet->readData(PACKET_OFFSET + 16, dst_ip, 4);
   packet->readData(SEGMENT_OFFSET, src_port, 2);
   packet->readData(SEGMENT_OFFSET + 2, dst_port, 2);
-
-  *src_ip = ntohl(*src_ip);
-  *dst_ip = ntohl(*dst_ip);
-  *src_port = ntohs(*src_port);
-  *dst_port = ntohs(*dst_port);
 }
 
-void setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {
-  uint32_t src_ip_converted = htonl(*src_ip);
-  uint32_t dst_ip_converted = htonl(*dst_ip);
-  uint16_t src_port_converted = htons(*src_port);
-  uint16_t dst_port_converted = htons(*dst_port);
-  
-  packet->writeData(PACKET_OFFSET + 12, &src_ip_converted, 4);
-  packet->writeData(PACKET_OFFSET + 16, &dst_ip_converted, 4);
-  packet->writeData(SEGMENT_OFFSET, &src_port_converted, 2);
-  packet->writeData(SEGMENT_OFFSET + 2, &dst_port_converted, 2);
+void setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {  
+  packet->writeData(PACKET_OFFSET + 12, src_ip, 4);
+  packet->writeData(PACKET_OFFSET + 16, dst_ip, 4);
+  packet->writeData(SEGMENT_OFFSET, src_port, 2);
+  packet->writeData(SEGMENT_OFFSET + 2, dst_port, 2);
 }
 
 uint16_t getPacketTtl(Packet *packet) {
@@ -189,7 +193,7 @@ void getRipHeader(Packet *packet, uint8_t *command, uint8_t *version) {
 void setIthRipEntry(Packet *packet, uint8_t idx, uint32_t ip, uint32_t metric, uint16_t addr_fam = 2) {
   uint16_t addr_fam_converted = htons(addr_fam);
   uint32_t entry_offset = DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE * idx, zero = 0;
-  uint32_t ip_converted = htonl(ip), metric_converted = htonl(metric);
+  uint32_t ip_converted = (ip), metric_converted = htonl(metric);
 
   packet->writeData(entry_offset, &addr_fam_converted, 2);
   packet->writeData(entry_offset + 2, &zero, 2);
@@ -207,8 +211,18 @@ void getIthRipEntry(Packet *packet, uint8_t idx, uint32_t *ip, uint32_t *metric,
   packet->readData(entry_offset + 16, metric, 4);
 
   *addr_fam = ntohs(*addr_fam);
-  *ip = ntohl(*ip);
+  *ip = (*ip);
   *metric = ntohl(*metric);
+}
+
+bool RoutingAssignment::isSameRouter(uint32_t ip) {
+  for (uint16_t i = 0; ; i++) {
+    std::optional<E::ipv4_t> result = getIPAddr(i);
+    if (!result.has_value()) { break; }
+    uint32_t my_ip = NetworkUtil::arrayToUINT64(result.value());
+    if (my_ip == ip) { return true; }
+  }
+  return false;
 }
 
 uint32_t RoutingAssignment::getMyIp() {
@@ -221,20 +235,27 @@ uint32_t RoutingAssignment::getMyIp() {
 void RoutingAssignment::initialize() {
   Packet initial_packet = Packet(DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE);
   ipv4_t broadcast_ip = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t)BROADCAST_IP);
-
   uint32_t src_ip = getMyIp();
   uint32_t dst_ip = NetworkUtil::arrayToUINT64(broadcast_ip);
 
-  global_rip_table.insert(std::make_pair(src_ip, new std::list<rip_info*>()));
-
-  setPacketSrcDst(&initial_packet, &src_ip, &RIP_PORT, &dst_ip, &RIP_PORT);
+  set_udp_port(&initial_packet, &RIP_PORT, &RIP_PORT);
   set_udp_header_len(&initial_packet, initial_packet.getSize() - SEGMENT_OFFSET);
   setRipHeader(&initial_packet, 1);
   setIthRipEntry(&initial_packet, 0, 0UL, 16UL, 0UL);
-  set_packet_checksum(&initial_packet, src_ip, dst_ip);
 
-  sendPacket("IPv4", std::move(initial_packet));
-  addTimer(nullptr, 30UL * TIME_SECOND);
+  for (uint16_t i = 0; ; i++) {
+    std::optional<E::ipv4_t> result = getIPAddr(i);
+    if (!result.has_value()) { break; }
+    uint32_t src_ip = NetworkUtil::arrayToUINT64(result.value());
+    setPacketSrcDst(&initial_packet, &src_ip, &RIP_PORT, &dst_ip, &RIP_PORT);
+
+    set_packet_checksum(&initial_packet, src_ip, dst_ip);
+    global_rip_table.insert(std::make_pair(src_ip, new std::list<rip_info*>()));
+    sendPacket("IPv4", std::move(initial_packet));
+    addTimer(src_ip, 30UL * TIME_SECOND);
+    printf("initialize of %s\n", getIpString(src_ip).c_str());
+  }
+
 }
 
 void RoutingAssignment::finalize() {
@@ -263,18 +284,25 @@ Size RoutingAssignment::ripQuery(const ipv4_t &ipv4) {
   RipTable rip_table = global_rip_table.find(getMyIp())->second;
   rip_info_itr itr = find_rip_info(rip_table, NetworkUtil::arrayToUINT64(ipv4));
 
-  if (itr == rip_table->end()) { return -1; }
+  printf("query: %s->%s\n", getIpString(getMyIp()).c_str(), getIpString(NetworkUtil::arrayToUINT64(ipv4)).c_str());
+
+  if (itr == rip_table->end()) {
+    size_t cost = linkCost(getRoutingTable(ipv4));
+    printf("default\n");
+    return cost;
+  }
 
   return (*itr)->cost;
 }
 
 bool isRipPort(Packet *packet) {
-  uint16_t income_src_port, income_dst_port;
-  uint32_t income_src_ip, income_dst_ip;
+  // uint16_t income_src_port, income_dst_port;
+  // uint32_t income_src_ip, income_dst_ip;
 
-  getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
-
-  return income_src_port == RIP_PORT && income_dst_port == RIP_PORT;
+  // uint16_pair udp_pair get_udp_port(packet);
+  // printf("src: %d:%d, dst: %d:%d\n", income_src_ip, income_src_port, income_dst_ip, income_dst_port);
+  // return income_src_port == RIP_PORT && income_dst_port == RIP_PORT;
+  return true;
 }
 
 bool isInitialPacket(Packet *packet) {
@@ -292,8 +320,9 @@ bool isInitialPacket(Packet *packet) {
 
 void RoutingAssignment::initialPacketHandler(Packet *packet) {
   uint16_t income_src_port, income_dst_port;
-  uint32_t income_src_ip, income_dst_ip;
+  uint32_t income_src_ip, income_dst_ip, my_ip;
   rip_info *rip_info = (struct rip_info *) malloc(sizeof(struct rip_info));
+  memset(rip_info, 0, sizeof(struct rip_info));
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
@@ -303,57 +332,100 @@ void RoutingAssignment::initialPacketHandler(Packet *packet) {
   // Push base cost into table
   rip_info->ip = income_src_ip;
   rip_info->cost = cost;
+  if (isSameRouter(income_src_ip)) { rip_info->cost = 0; }
 
-  RipTable rip_table = global_rip_table.find(getMyIp())->second;
+  my_ip = NetworkUtil::arrayToUINT64(getIPAddr((uint16_t) getRoutingTable(src_ip)).value());
+
+  RipTable rip_table = global_rip_table.find(my_ip)->second;
   rip_table->push_back(rip_info);
-
-  // return sendResponse(income_src_ip);
+  printf("new 1: %s->%s=%d\n", getIpString(my_ip).c_str(), getIpString(income_src_ip).c_str(), cost);
+  return sendResponse(income_dst_ip, income_src_ip);
 }
 
 void RoutingAssignment::updateTable(Packet *packet) {
   uint8_t entry_count = (packet->getSize() - (DATA_OFFSET + RIP_HEADER_SIZE)) / RIP_ENTRY_SIZE;
   uint16_t income_src_port, income_dst_port, addr_fam, new_cost;
-  uint32_t income_src_ip, income_dst_ip, ip, metric;
+  uint32_t income_src_ip, income_dst_ip, ip, my_ip, metric;
   rip_info_itr itr;
   rip_info *rip_info;
-  RipTable rip_table = global_rip_table.find(getMyIp())->second;
+  RipTable rip_table;
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
   ipv4_t src_ip = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t) income_src_ip);
   size_t cost_to_src = linkCost(getRoutingTable(src_ip));
 
-  for (uint8_t i = 0; i < entry_count; i++) {
-    getIthRipEntry(packet, i, &ip, &metric, &addr_fam);
-    new_cost = metric + cost_to_src;
+  for (uint16_t i = 0; ; i++) {
+    std::optional<E::ipv4_t> result = getIPAddr(i);
+    if (!result.has_value()) { break; }
+    uint32_t my_ip = NetworkUtil::arrayToUINT64(result.value());
 
-    itr = find_rip_info(rip_table, ip);
+    rip_table = global_rip_table.find(my_ip)->second;
+
+
+    itr = find_rip_info(rip_table, income_src_ip);
     if (itr == rip_table->end()) {
       rip_info = (struct rip_info *) malloc(sizeof(struct rip_info));
-      rip_info->ip = ip;
-      rip_info->cost = new_cost;
+      memset(rip_info, 0, sizeof(struct rip_info));
+      rip_info->ip = income_src_ip;
+      rip_info->cost = cost_to_src;
+      
+      // if (new_cost < cost_to_src) { rip_info->cost = new_cost; }
+      printf("new 2: %s->%s=%d\n", getIpString(my_ip).c_str(), getIpString(income_src_ip).c_str(), rip_info->cost);
       rip_table->push_back(rip_info);
-    } else {
-      rip_info = *itr;
-      if (rip_info->cost > new_cost) {
+    }
+
+
+    
+
+    for (uint8_t i = 0; i < entry_count; i++) {
+      getIthRipEntry(packet, i, &ip, &metric, &addr_fam);
+      if (ip == my_ip) { continue; }
+      new_cost = metric + cost_to_src;
+      if (isSameRouter(ip)) { new_cost = 0; }
+
+      itr = find_rip_info(rip_table, ip);
+      if (itr == rip_table->end()) {
+        rip_info = (struct rip_info *) malloc(sizeof(struct rip_info));
+        memset(rip_info, 0, sizeof(struct rip_info));
+        rip_info->ip = ip;
         rip_info->cost = new_cost;
+        
+        // if (new_cost < cost_to_src) { rip_info->cost = new_cost; }
+        printf("new 2: %s->%s=%d\n", getIpString(my_ip).c_str(), getIpString(ip).c_str(), rip_info->cost);
+        rip_table->push_back(rip_info);
+      } else {
+        rip_info = *itr;
+        // printf("possible: %s->%s=%d (prev=%d)\n", getIpString(getMyIp()).c_str(), getIpString(ip).c_str(), new_cost, rip_info->cost);
+        if (rip_info->cost > new_cost) {
+          printf("updated: %s->%s=%d (prev=%d)\n", getIpString(my_ip).c_str(), getIpString(ip).c_str(), new_cost, rip_info->cost);
+          // printf("updated");
+          rip_info->cost = new_cost;
+        }
       }
     }
+
   }
+
   return;
 }
 
-void RoutingAssignment::sendResponse(uint32_t dst_ip) {
-  uint32_t src_ip = getMyIp();
+void RoutingAssignment::sendResponse(uint32_t src_ip, uint32_t dst_ip) {
+  // uint32_t src_ip = getMyIp();
+  if (src_ip == BROADCAST_IP) {
+    ipv4_t dst_ipv4 = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t)dst_ip);
+    src_ip = NetworkUtil::arrayToUINT64(getIPAddr((uint16_t) getRoutingTable(dst_ipv4)).value());
+  }
+  // printf("send response of %s\n", getIpString(src_ip).c_str());
   RipTable rip_table = global_rip_table.find(src_ip)->second;
   uint16_t entry_count = rip_table->size();
   if (entry_count > MAX_ENTRY) entry_count = MAX_ENTRY;
 
   Packet response = Packet(DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE * entry_count);
-  ipv4_t dst_ipv4 = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t)dst_ip);
 
   setPacketSrcDst(&response, &src_ip, &RIP_PORT, &dst_ip, &RIP_PORT);
   set_udp_header_len(&response, response.getSize() - SEGMENT_OFFSET);
+  set_udp_port(&response, &RIP_PORT, &RIP_PORT);
   setRipHeader(&response, 2);
 
   rip_info_itr itr = rip_table->begin();
@@ -364,7 +436,6 @@ void RoutingAssignment::sendResponse(uint32_t dst_ip) {
     setIthRipEntry(&response, i, rip_info->ip, rip_info->cost);    
     itr++;
   }
-
 
   set_packet_checksum(&response, src_ip, dst_ip);
   sendPacket("IPv4", std::move(response));
@@ -378,15 +449,18 @@ bool RoutingAssignment::isSrcHost(Packet *packet) {
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
-  ipv4_t src_ipv4 = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t)income_src_ip);
-  ipv4_t my_ipv4 = getIPAddr((uint16_t) getRoutingTable(src_ipv4)).value();
-  uint32_t my_ip = NetworkUtil::arrayToUINT64(my_ipv4);
+  uint32_t my_ip = getMyIp();
 
   return my_ip == income_src_ip;
 }
 
 void RoutingAssignment::packetArrived(std::string fromModule, Packet &&packet) {
-  if (!isRipPort(&packet) || isSrcHost(&packet)) { return; }
+  if (isSrcHost(&packet)) { return; }
+
+  // if (global_rip_table.find(getMyIp()) == global_rip_table.end()) {
+  //   insertGlobalRipTable();
+  //   printf("initialize of %s\n", getIpString(getMyIp()).c_str());
+  // }
 
   if (isInitialPacket(&packet)) {
     return initialPacketHandler(&packet);
@@ -396,8 +470,11 @@ void RoutingAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 }
 
 void RoutingAssignment::timerCallback(std::any payload) {
-  sendResponse(BROADCAST_IP);
-  // addTimer(nullptr, 30UL * TIME_SECOND);
+  uint32_t src_ip = std::any_cast<uint32_t>(payload);
+  // printf("timer from: %s\n", getIpString(getMyIp()).c_str());
+
+  sendResponse(src_ip, BROADCAST_IP);
+  addTimer(src_ip, 30UL * TIME_SECOND);
 }
 
 } // namespace E
