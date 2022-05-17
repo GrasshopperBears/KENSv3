@@ -117,6 +117,8 @@ protected:
       ipv4_t j_ipv4 = network;
       j_ipv4[3] = 2;
 
+      printf("wire: %d.%d.%d.%d->%d.%d.%d.%d=%d\n", i_ipv4[0], i_ipv4[1], i_ipv4[2], i_ipv4[3], j_ipv4[0], j_ipv4[1], j_ipv4[2], j_ipv4[3], cost);
+
       int i_port = ports_i.first;
       int j_port = ports_j.first;
 
