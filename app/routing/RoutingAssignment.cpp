@@ -292,6 +292,34 @@ void RoutingAssignment::initialPacketHandler(Packet *packet) {
 }
 
 void RoutingAssignment::updateTable(Packet *packet) {
+  uint8_t entry_count = (packet->getSize() - (DATA_OFFSET + RIP_HEADER_SIZE)) / RIP_ENTRY_SIZE;
+  uint16_t income_src_port, income_dst_port, addr_fam, new_cost;
+  uint32_t income_src_ip, income_dst_ip, ip, metric;
+  rip_info_itr itr;
+  rip_info *rip_info;
+
+  getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+
+  ipv4_t src_ip = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t) income_src_ip);
+  size_t cost_to_src = linkCost(getRoutingTable(src_ip));
+
+  for (uint8_t i = 0; i < entry_count; i++) {
+    getIthRipEntry(packet, i, &ip, &metric, &addr_fam);
+    new_cost = metric + cost_to_src;
+
+    itr = find_rip_info(ip);
+    if (itr == rip_table.end()) {
+      rip_info = (struct rip_info *) malloc(sizeof(struct rip_info));
+      rip_info->ip = ip;
+      rip_info->cost = new_cost;
+      rip_table.push_back(rip_info);
+    } else {
+      rip_info = *itr;
+      if (rip_info->cost > new_cost) {
+        rip_info->cost = new_cost;
+      }
+    }
+  }
   return;
 }
 
