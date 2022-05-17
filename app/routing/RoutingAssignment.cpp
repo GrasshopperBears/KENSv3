@@ -22,15 +22,10 @@ const int RIP_ENTRY_SIZE = 20;
 uint16_t RIP_PORT = 520;
 const uint64_t TIME_SECOND = 1000 * 1000 * 1000;
 const uint32_t BROADCAST_IP = 0xFFFFFFFF;
+const ipv4_t BROADCAST_IPV4 = {255, 255, 255, 255};
 const uint16_t MAX_HOP = 15;
 const uint16_t MAX_COST = 300;
 const uint16_t MAX_ENTRY = 25;
-
-// ------------------enums start------------------
-
-
-
-// ------------------enums end------------------
 
 // ----------------structs start----------------
 struct pseudoheader {
@@ -43,8 +38,7 @@ struct pseudoheader {
 
 struct rip_info {
   uint32_t ip;
-  uint8_t hops;
-  uint16_t cost;  // docs: In RIPv1, the cost is just hop-count
+  uint16_t cost;
 };
 // ----------------structs end----------------
 
@@ -202,6 +196,12 @@ void getIthRipEntry(Packet *packet, uint8_t idx, uint32_t *ip, uint32_t *metric,
   *metric = ntohl(*metric);
 }
 
+void setRipPacket(Packet *packet, uint8_t command) {
+  set_udp_port(packet, &RIP_PORT, &RIP_PORT);
+  set_udp_header_len(packet, packet->getSize() - SEGMENT_OFFSET);
+  setRipHeader(packet, command);
+}
+
 bool RoutingAssignment::isSameRouter(uint32_t ip) {
   for (uint16_t i = 0; ; i++) {
     optional_ipv4 result = getIPAddr(i);
@@ -213,22 +213,17 @@ bool RoutingAssignment::isSameRouter(uint32_t ip) {
   return false;
 }
 
-uint32_t RoutingAssignment::getMyIp() {
-  ipv4_t broadcast_ipv4 = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t) BROADCAST_IP);
-  ipv4_t my_ipv4 = getIPAddr((uint16_t) getRoutingTable(broadcast_ipv4)).value();
-
+uint32_t RoutingAssignment::getMyIpFromPeer(ipv4_t ipv4) {
+  ipv4_t my_ipv4 = getIPAddr((uint16_t) getRoutingTable(ipv4)).value();
   return NetworkUtil::arrayToUINT64(my_ipv4); 
 }
 
 void RoutingAssignment::initialize() {
   Packet initial_packet = Packet(DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE);
-  ipv4_t broadcast_ipv4 = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t) BROADCAST_IP);
-  uint32_t src_ip = getMyIp();
-  uint32_t dst_ip = NetworkUtil::arrayToUINT64(broadcast_ipv4);
+  uint32_t src_ip = getMyIpFromPeer(BROADCAST_IPV4);
+  uint32_t dst_ip = NetworkUtil::arrayToUINT64(BROADCAST_IPV4);
 
-  set_udp_port(&initial_packet, &RIP_PORT, &RIP_PORT);
-  set_udp_header_len(&initial_packet, initial_packet.getSize() - SEGMENT_OFFSET);
-  setRipHeader(&initial_packet, 1);
+  setRipPacket(&initial_packet, 1);
   setIthRipEntry(&initial_packet, 0, 0UL, 16UL, 0UL);
 
   for (uint16_t i = 0; ; i++) {
@@ -267,12 +262,21 @@ void RoutingAssignment::finalize() {
  */
 Size RoutingAssignment::ripQuery(const ipv4_t &ipv4) {
   // Implement below
-  RipTable rip_table = global_rip_table.find(getMyIp())->second;
+  RipTable rip_table = global_rip_table.find(getMyIpFromPeer(BROADCAST_IPV4))->second;
   rip_info_itr itr = find_rip_info(rip_table, NetworkUtil::arrayToUINT64(ipv4));
 
   if (itr == rip_table->end()) { return -1; }
 
   return (*itr)->cost;
+}
+
+void insertIntoRipTable(RipTable rip_table, uint32_t ip, uint16_t cost) {
+  rip_info *rip_info = (struct rip_info *) malloc(sizeof(struct rip_info));
+  memset(rip_info, 0, sizeof(struct rip_info));
+
+  rip_info->ip = ip;
+  rip_info->cost = cost;
+  rip_table->push_back(rip_info);
 }
 
 bool isInitialPacket(Packet *packet) {
@@ -291,23 +295,19 @@ bool isInitialPacket(Packet *packet) {
 void RoutingAssignment::initialPacketHandler(Packet *packet) {
   uint16_t income_src_port, income_dst_port;
   uint32_t income_src_ip, income_dst_ip, my_ip;
-  rip_info *rip_info = (struct rip_info *) malloc(sizeof(struct rip_info));
-  memset(rip_info, 0, sizeof(struct rip_info));
 
   getPacketSrcDst(packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
 
   ipv4_t src_ipv4 = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t) income_src_ip);
   size_t cost = linkCost(getRoutingTable(src_ipv4));
   // Get my IP from packet source
-  my_ip = NetworkUtil::arrayToUINT64(getIPAddr((uint16_t) getRoutingTable(src_ipv4)).value());
-  
-  // Push base cost into table
-  rip_info->ip = income_src_ip;
-  rip_info->cost = cost;
-  if (isSameRouter(income_src_ip)) { rip_info->cost = 0; }
+  my_ip = getMyIpFromPeer(src_ipv4);
 
+  // Push base cost into table
+  if (isSameRouter(income_src_ip)) { cost = 0; }
   RipTable rip_table = global_rip_table.find(my_ip)->second;
-  rip_table->push_back(rip_info);
+  insertIntoRipTable(rip_table, income_src_ip, cost);
+
   return sendResponse(income_dst_ip, income_src_ip);
 }
 
@@ -328,19 +328,13 @@ void RoutingAssignment::updateTable(Packet *packet) {
     optional_ipv4 result = getIPAddr(i);
     if (!result.has_value()) { break; }
 
-    uint32_t my_ip = NetworkUtil::arrayToUINT64(result.value());
+    uint32_t my_ip = getMyIpFromPeer(result.value());
     rip_table = global_rip_table.find(my_ip)->second;
 
     // Set adj peer cost if not exist
     itr = find_rip_info(rip_table, income_src_ip);
-    if (itr == rip_table->end()) {
-      rip_info = (struct rip_info *) malloc(sizeof(struct rip_info));
-      memset(rip_info, 0, sizeof(struct rip_info));
-
-      rip_info->ip = income_src_ip;
-      rip_info->cost = cost_to_src;
-      rip_table->push_back(rip_info);
-    }
+    if (itr == rip_table->end())
+      insertIntoRipTable(rip_table, income_src_ip, cost_to_src);
     
     for (uint8_t i = 0; i < entry_count; i++) {
       getIthRipEntry(packet, i, &ip, &metric, &addr_fam);
@@ -351,12 +345,7 @@ void RoutingAssignment::updateTable(Packet *packet) {
 
       itr = find_rip_info(rip_table, ip);
       if (itr == rip_table->end()) {
-        rip_info = (struct rip_info *) malloc(sizeof(struct rip_info));
-        memset(rip_info, 0, sizeof(struct rip_info));
-
-        rip_info->ip = ip;
-        rip_info->cost = new_cost;
-        rip_table->push_back(rip_info);
+        insertIntoRipTable(rip_table, ip, new_cost);
       } else {
         rip_info = *itr;
         if (rip_info->cost > new_cost)
@@ -380,9 +369,7 @@ void RoutingAssignment::sendResponse(uint32_t src_ip, uint32_t dst_ip) {
   Packet response = Packet(DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE * entry_count);
 
   setPacketSrcDst(&response, &src_ip, &RIP_PORT, &dst_ip, &RIP_PORT);
-  set_udp_header_len(&response, response.getSize() - SEGMENT_OFFSET);
-  set_udp_port(&response, &RIP_PORT, &RIP_PORT);
-  setRipHeader(&response, 2);
+  setRipPacket(&response, 2);
 
   rip_info_itr itr = rip_table->begin();
   rip_info *rip_info;
