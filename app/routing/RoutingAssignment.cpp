@@ -21,6 +21,9 @@ const int RIP_HEADER_SIZE = 4;
 const int RIP_ENTRY_SIZE = 20;
 uint16_t RIP_PORT = 520;
 const uint64_t TIME_SECOND = 1000 * 1000 * 1000;
+const uint32_t BROADCAST_IP = 0xFFFFFFFF;
+const uint16_t MAX_HOP = 15;
+const uint16_t MAX_COST = 300;
 
 // ------------------enums start------------------
 
@@ -208,7 +211,7 @@ void getIthRipEntry(Packet *packet, uint8_t idx, uint32_t *ip, uint32_t *metric,
 
 void RoutingAssignment::initialize() {
   Packet initial_packet = Packet(DATA_OFFSET + RIP_HEADER_SIZE + RIP_ENTRY_SIZE);
-  ipv4_t broadcast_ip = {255, 255, 255, 255};
+  ipv4_t broadcast_ip = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t)BROADCAST_IP);
   ipv4_t ip = getIPAddr((uint16_t) getRoutingTable(broadcast_ip)).value();
 
   uint32_t src_ip = NetworkUtil::arrayToUINT64(ip);
@@ -280,22 +283,38 @@ void RoutingAssignment::initialPacketHandler(Packet *packet) {
   ipv4_t src_ip = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t) income_src_ip);
   size_t cost = linkCost(getRoutingTable(src_ip));
   
+  // Push base cost into table
   rip_info->ip = income_src_ip;
-  rip_info->hops = 1;
   rip_info->cost = cost;
   rip_table.push_back(rip_info);
+
+  return sendResponse(income_src_ip);
+}
+
+void RoutingAssignment::updateTable(Packet *packet) {
+  return;
+}
+
+void RoutingAssignment::sendResponse(uint32_t src_ip) {
   return;
 }
 
 void RoutingAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   if (!isRipPort(&packet)) { return; }
-  if (isInitialPacket(&packet)) { return initialPacketHandler(&packet); }
-  // TODO: handle other request packets
+  if (isInitialPacket(&packet)) {
+    uint16_t income_src_port, income_dst_port;
+    uint32_t income_src_ip, income_dst_ip;
+
+    getPacketSrcDst(&packet, &income_src_ip, &income_src_port, &income_dst_ip, &income_dst_port);
+    return initialPacketHandler(&packet);
+  } else {
+    updateTable(&packet);
+  }
 }
 
 void RoutingAssignment::timerCallback(std::any payload) {
-  // Remove below
-  (void)payload;
+  sendResponse(BROADCAST_IP);
+  // addTimer(nullptr, 30UL * TIME_SECOND);
 }
 
 } // namespace E
