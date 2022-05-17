@@ -95,7 +95,6 @@ public:
   virtual void initialPacketHandler(Packet *packet);
   virtual void updateTable(Packet *packet);
   virtual void sendResponse(uint32_t src_ip, uint32_t dst_ip);
-  virtual bool isSrcHost(Packet *packet);
   virtual bool isSameRouter(uint32_t ip);
   virtual ~RoutingAssignment();
 
