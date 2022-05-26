@@ -23,8 +23,6 @@ uint16_t RIP_PORT = 520;
 const uint64_t TIME_SECOND = 1000 * 1000 * 1000;
 const uint32_t BROADCAST_IP = 0xFFFFFFFF;
 const ipv4_t BROADCAST_IPV4 = {255, 255, 255, 255};
-const uint16_t MAX_HOP = 15;
-const uint16_t MAX_COST = 300;
 const uint16_t MAX_ENTRY = 25;
 
 // ----------------structs start----------------
@@ -63,21 +61,6 @@ rip_info_itr find_rip_info(RipTable rip_table, uint32_t ipv4) {
   return itr;
 }
 
-// Helper: Print IP
-std::string getIpString(uint32_t ip) {
-  ipv4_t ipv4 = NetworkUtil::UINT64ToArray<sizeof(uint32_t)>((uint64_t)ip);
-  std::string result = std::string();
-  result.append(std::to_string(ipv4[0]));
-  result.append(".");
-  result.append(std::to_string(ipv4[1]));
-  result.append(".");
-  result.append(std::to_string(ipv4[2]));
-  result.append(".");
-  result.append(std::to_string(ipv4[3]));
-
-  return result;
-}
-
 void getPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint32_t *dst_ip, uint16_t *dst_port) {
   packet->readData(PACKET_OFFSET + 12, src_ip, 4);
   packet->readData(PACKET_OFFSET + 16, dst_ip, 4);
@@ -90,26 +73,6 @@ void setPacketSrcDst(Packet *packet, uint32_t *src_ip, uint16_t *src_port, uint3
   packet->writeData(PACKET_OFFSET + 16, dst_ip, 4);
   packet->writeData(SEGMENT_OFFSET, src_port, 2);
   packet->writeData(SEGMENT_OFFSET + 2, dst_port, 2);
-}
-
-uint16_t getPacketTtl(Packet *packet) {
-  uint16_t ttl;
-  packet->readData(PACKET_OFFSET + 8, &ttl, 1);
-  return ttl;
-}
-
-void setPacketTtl(Packet *packet, uint16_t ttl) {
-  packet->writeData(PACKET_OFFSET + 8, &ttl, 1);
-}
-
-uint16_pair get_udp_port(Packet *packet) {
-  uint16_t src_port, dst_port;
-  uint16_pair ports;
-
-  packet->readData(SEGMENT_OFFSET, &src_port, 2);
-  packet->readData(SEGMENT_OFFSET + 2, &dst_port, 2);
-  ports = std::make_pair(ntohs(src_port), ntohs(dst_port));
-  return ports;
 }
 
 void set_udp_port(Packet *packet, uint16_t *src_port, uint16_t *dst_port) {
